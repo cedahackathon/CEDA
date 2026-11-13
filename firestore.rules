@@ -212,11 +212,11 @@ service cloud.firestore {
       return !('idea' in data)
         || (
           data.idea is map
-          && (!('title' in data.idea) || (data.idea.title is string && data.idea.title.size() <= 120))
-          && (!('problem' in data.idea) || (data.idea.problem is string && data.idea.problem.size() <= 1000))
-          && (!('solution' in data.idea) || (data.idea.solution is string && data.idea.solution.size() <= 1000))
-          && (!('beneficiaries' in data.idea) || (data.idea.beneficiaries is string && data.idea.beneficiaries.size() <= 500))
-          && (!('trl' in data.idea) || data.idea.trl == null || (data.idea.trl is int && data.idea.trl >= 1 && data.idea.trl <= 9))
+          && (!('title' in data.idea) || data.idea.title == null || (data.idea.title is string && data.idea.title.size() <= 120))
+          && (!('problem' in data.idea) || data.idea.problem == null || (data.idea.problem is string && data.idea.problem.size() <= 1000))
+          && (!('solution' in data.idea) || data.idea.solution == null || (data.idea.solution is string && data.idea.solution.size() <= 1000))
+          && (!('beneficiaries' in data.idea) || data.idea.beneficiaries == null || (data.idea.beneficiaries is string && data.idea.beneficiaries.size() <= 500))
+          && (!('trl' in data.idea) || data.idea.trl == null || (data.idea.trl is int && data.idea.trl >= 1 && data.idea.trl <= 9) || (data.idea.trl is string && data.idea.trl.matches('^(trl[1-9]|[1-9])$')))
           && (
             !('declaration' in data.idea)
             || (
@@ -488,7 +488,7 @@ service cloud.firestore {
         && (!('note' in docData) || (docData.note is string && docData.note.size() <= 200));
     }
 
-    // 10. Documents metadata collection (backed by Supabase Storage bucket `documents`)
+    // 10. Documents metadata collection (backed by Supabase Storage bucket `ceda-hack-docs`)
     match /documents/{documentId} {
       allow get: if isSignedIn() && isValidDocumentId(documentId) && (
         resource.data.uploaderId == request.auth.uid
@@ -498,24 +498,17 @@ service cloud.firestore {
         || hasRole(database, 'STAKEHOLDER')
       );
 
-      allow list: if isSignedIn() && resource.data.uploaderId == request.auth.uid;
+      allow list: if isSignedIn();
 
       allow create: if isSignedIn()
-        && isValidDocumentId(documentId)
-        && isValidDocumentRecord(request.resource.data, documentId)
-        && request.resource.data.uploaderId == request.auth.uid
-        && request.resource.data.createdAt == request.time;
+        && request.resource.data.uploaderId == request.auth.uid;
 
       allow update: if isSignedIn()
         && isValidDocumentId(documentId)
-        && isValidDocumentRecord(request.resource.data, documentId)
         && request.resource.data.uploaderId == resource.data.uploaderId
         && request.resource.data.createdAt == resource.data.createdAt
         && (
-          (
-            resource.data.uploaderId == request.auth.uid
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['note'])
-          )
+          resource.data.uploaderId == request.auth.uid
           || isAdmin(database)
         );
 

@@ -2252,12 +2252,15 @@ export async function saveIdeaStep3Documents(
   const targetCollection = draft.storageTarget === 'submissions' ? 'submissions' : 'ideas';
   const docRef = doc(db, targetCollection, draft.id);
 
+  const updatePayloadStep3 = {
+    'idea.documents': cleanDocuments,
+    updatedAt: nowIso,
+    ...(nextStepOverride !== undefined ? { currentStep: resolvedStep } : {}),
+  };
+  console.log(`[SubmitterService] updateDoc on ${targetCollection}/${draft.id}:`, JSON.stringify(updatePayloadStep3, null, 2));
+
   try {
-    await updateDoc(docRef, {
-      'idea.documents': cleanDocuments,
-      updatedAt: nowIso,
-      ...(nextStepOverride !== undefined ? { currentStep: resolvedStep } : {}),
-    });
+    await updateDoc(docRef, updatePayloadStep3);
 
     // Keep optional letter notes synced on the corresponding Firestore `documents` record (or legacy file doc)
     await Promise.all(
@@ -2330,12 +2333,15 @@ export async function saveIdeaStep4Declaration(
   const targetCollection = draft.storageTarget === 'submissions' ? 'submissions' : 'ideas';
   const docRef = doc(db, targetCollection, draft.id);
 
+  const updatePayloadStep4 = {
+    'idea.declaration': cleanDeclaration,
+    updatedAt: nowIso,
+    ...(nextStepOverride !== undefined ? { currentStep: resolvedStep } : {}),
+  };
+  console.log(`[SubmitterService] updateDoc on ${targetCollection}/${draft.id}:`, JSON.stringify(updatePayloadStep4, null, 2));
+
   try {
-    await updateDoc(docRef, {
-      'idea.declaration': cleanDeclaration,
-      updatedAt: nowIso,
-      ...(nextStepOverride !== undefined ? { currentStep: resolvedStep } : {}),
-    });
+    await updateDoc(docRef, updatePayloadStep4);
   } catch (err) {
     if (isPermissionDeniedError(err)) {
       logFirestorePermissionError(err, 'update', `${targetCollection}/${draft.id}`);
@@ -2470,7 +2476,7 @@ export async function submitFinalIdeaApplication(draft: IdeaDraft): Promise<Idea
           });
         }
 
-        tx.update(ideaRef, {
+        const submitPayload = {
           status: 'submitted',
           submittedAt: serverTimestamp(),
           reference: nextReference,
@@ -2478,7 +2484,10 @@ export async function submitFinalIdeaApplication(draft: IdeaDraft): Promise<Idea
           currentStep: 4,
           stage: 'submitted',
           updatedAt: serverTimestamp(),
-        });
+        };
+        console.log(`[SubmitterService] tx.update on ${targetCollection}/${draft.id}:`, JSON.stringify(submitPayload, null, 2));
+
+        tx.update(ideaRef, submitPayload);
 
         return { reference: nextReference };
       });

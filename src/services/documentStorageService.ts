@@ -258,7 +258,7 @@ export async function uploadDocumentToSupabaseAndFirestore({
     size: file.size,
     type: contentType,
     uploaderId,
-    createdAt: serverTimestamp(),
+    createdAt: createdAtIso,
     ...(ideaId?.trim() ? { ideaId: ideaId.trim().slice(0, 128) } : {}),
     ...(docType ? { docType } : {}),
     ...(cleanNote ? { note: cleanNote } : {}),
