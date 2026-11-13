@@ -92,7 +92,7 @@ export const FaqsPage: React.FC = () => {
     },
     {
       q: 'What if I forget my password or get locked out?',
-      a: 'After 3 failed OTP attempts or 5 failed password attempts, your account is temporarily locked for 15 minutes. You can request a password reset anytime via SMS or verified email.'
+      a: 'After 3 failed OTP attempts or 5 failed password attempts, your account is temporarily locked for 15 minutes. You can request a password reset anytime via your registered email.'
     },
     {
       q: 'Does CEDA support applicants across rural districts?',

@@ -10,20 +10,12 @@ import {
   sendPasswordResetEmail,
   confirmPasswordReset,
   sendEmailVerification,
-  RecaptchaVerifier,
-  signInWithPhoneNumber,
-  PhoneAuthProvider,
-  linkWithCredential,
-  ConfirmationResult,
+  applyActionCode,
 } from 'firebase/auth';
 import {
   doc,
   setDoc,
   getDoc,
-  collection,
-  query,
-  where,
-  getDocs,
 } from 'firebase/firestore';
 import { auth, db, firebaseConfig } from '../config/firebase';
 import {
@@ -52,10 +44,6 @@ const STORAGE_CURRENT_SESSION_KEY = 'ceda_portal_current_session_v1';
 const SEED_PASSWORD = 'Ceda#2026Demo';
 const SEED_HASH = hashPassword(SEED_PASSWORD);
 
-// Global or memory references for active OTP sessions
-let appRecaptchaVerifier: RecaptchaVerifier | null = null;
-let activeConfirmationResult: ConfirmationResult | null = null;
-
 const DEFAULT_SEED_USERS: UserProfile[] = [
   {
     id: 'user-sub-001',
@@ -71,7 +59,7 @@ const DEFAULT_SEED_USERS: UserProfile[] = [
     accountType: 'individual',
     role: 'SUBMITTER',
     status: 'ACTIVE',
-    verificationChannel: 'sms',
+    verificationChannel: 'email',
     emailVerified: true,
     phoneVerified: true,
     passwordHash: SEED_HASH,
@@ -119,7 +107,7 @@ const DEFAULT_SEED_USERS: UserProfile[] = [
     accountType: 'individual',
     role: 'ADJUDICATOR',
     status: 'ACTIVE',
-    verificationChannel: 'sms',
+    verificationChannel: 'email',
     emailVerified: true,
     phoneVerified: true,
     passwordHash: SEED_HASH,
@@ -317,46 +305,7 @@ class AuthService {
   }
 
   /**
-   * Initialize or retrieve invisible reCAPTCHA verifier for phone OTP
-   */
-  public getRecaptchaVerifier(containerId = 'recaptcha-container'): RecaptchaVerifier | null {
-    try {
-      if (typeof window === 'undefined') return null;
-      const container = document.getElementById(containerId);
-      if (!container) {
-        console.warn(`reCAPTCHA container '#${containerId}' not found in DOM.`);
-        return null;
-      }
-      
-      // If verifier exists, check if it's still attached to the current DOM container
-      if (appRecaptchaVerifier) {
-        try {
-          appRecaptchaVerifier.clear();
-        } catch {
-          // ignore clear error
-        }
-        appRecaptchaVerifier = null;
-      }
-
-      appRecaptchaVerifier = new RecaptchaVerifier(auth, containerId, {
-        size: 'invisible',
-        callback: () => {
-          console.info('reCAPTCHA solved for phone auth');
-        },
-        'expired-callback': () => {
-          console.warn('reCAPTCHA expired');
-        },
-      });
-
-      return appRecaptchaVerifier;
-    } catch (err) {
-      console.warn('Failed to initialize RecaptchaVerifier:', err);
-      return null;
-    }
-  }
-
-  /**
-   * 2. REGISTRATION (Real Firebase Auth + Firestore + Real Firebase OTP)
+   * 2. REGISTRATION (Firebase Auth + Firestore + Email Verification)
    */
   public async register(payload: RegisterRequest): Promise<RegisterResponse> {
     await simulateLatency(300);
@@ -364,168 +313,200 @@ class AuthService {
     const email = payload.email.trim();
     const password = payload.password;
     const cleanPhone = payload.phone.replace(/[\s\-\+]/g, '');
-    const fullPhoneNumber = `+267${cleanPhone}`;
-    const newId = `user-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
 
-    let firebaseUid = newId;
+    let firebaseUid: string;
     let isEmailVerificationSent = false;
-    let verificationId: string | undefined = undefined;
 
     // 1. Create account in Firebase Authentication with Email & Password
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       firebaseUid = userCredential.user.uid;
 
-      // 2a. If Email OTP / Verification requested, trigger Firebase sendEmailVerification
-      if (payload.verificationChannel === 'email') {
+      // 2a. Send Firebase's email verification link.
+      try {
+        const actionCodeSettings = {
+          url: `${window.location.origin}/otp-verification?target=${encodeURIComponent(email)}&channel=email`,
+          handleCodeInApp: true,
+        };
         try {
-          // ActionCodeSettings to allow users clicking the email link to redirect smoothly back to the app
-          const actionCodeSettings = {
-            url: `${window.location.origin}/otp-verification?target=${encodeURIComponent(email)}&channel=email`,
-            handleCodeInApp: true,
-          };
-          try {
-            await sendEmailVerification(userCredential.user, actionCodeSettings);
-          } catch (actionErr: any) {
-            console.warn('sendEmailVerification with actionCodeSettings note (falling back to standard call):', actionErr?.message);
-            // Fallback to standard verification if origin is not yet in Authorized Domains
-            await sendEmailVerification(userCredential.user);
-          }
-          isEmailVerificationSent = true;
-          console.info('Firebase verification email dispatched successfully to:', email);
+          await sendEmailVerification(userCredential.user, actionCodeSettings);
         } catch (emailErr: any) {
-          console.error('Firebase sendEmailVerification error:', emailErr);
-          if (emailErr?.code === 'auth/too-many-requests') {
-            console.warn('Firebase email quota or rate limit exceeded.');
-          } else if (emailErr?.code) {
-            console.warn(`Firebase email error code: ${emailErr.code} - ${emailErr.message}`);
-          }
+          console.warn('sendEmailVerification with actionCodeSettings note (falling back to standard call):', emailErr?.message);
+          await sendEmailVerification(userCredential.user);
+        }
+        isEmailVerificationSent = true;
+        console.info('Firebase verification email dispatched successfully to:', email);
+      } catch (emailErr: any) {
+        console.error('Firebase sendEmailVerification error:', emailErr);
+        if (emailErr?.code === 'auth/too-many-requests') {
+          console.warn('Firebase email quota or rate limit exceeded.');
+        } else if (emailErr?.code) {
+          console.warn(`Firebase email error code: ${emailErr.code} - ${emailErr.message}`);
         }
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Firebase Auth registration error:', err);
-      if (err?.code === 'auth/email-already-in-use') {
+      const errorCode =
+        typeof err === 'object' && err !== null && 'code' in err ? err.code : undefined;
+      if (errorCode === 'auth/email-already-in-use') {
         throw new Error('This email address is already registered. Please log in or use another email.');
-      } else if (err?.code === 'auth/invalid-email') {
+      } else if (errorCode === 'auth/invalid-email') {
         throw new Error('The email address provided is invalid.');
-      } else if (err?.code === 'auth/operation-not-allowed') {
+      } else if (errorCode === 'auth/operation-not-allowed') {
         throw new Error('Email/password sign-in is not enabled in Firebase Console.');
       }
-    }
-
-    // 2b. If SMS channel requested, trigger Firebase Phone Auth with reCAPTCHA
-    if (payload.verificationChannel === 'sms') {
-      try {
-        const verifier = this.getRecaptchaVerifier('recaptcha-container');
-        if (verifier) {
-          activeConfirmationResult = await signInWithPhoneNumber(auth, fullPhoneNumber, verifier);
-          verificationId = activeConfirmationResult.verificationId;
-          console.info('Firebase Phone Auth OTP dispatched to:', fullPhoneNumber);
-        }
-      } catch (phoneErr: any) {
-        console.warn('Firebase signInWithPhoneNumber note (fallback to simulated OTP if SMS quota/format fails):', phoneErr?.message || phoneErr);
-      }
+      throw err;
     }
 
     const newUser: UserProfile = {
       id: firebaseUid,
       email,
-      phone: payload.phone,
+      phone: cleanPhone,
       firstName: payload.firstName,
       surname: payload.surname,
       fullName: `${payload.firstName} ${payload.surname}`,
-      omangOrPassport: payload.omangOrPassport,
+      omangOrPassport: payload.omangOrPassport.trim(),
       dob: payload.dob,
       district: payload.district,
       town: payload.town,
       accountType: payload.accountType,
       role: 'SUBMITTER', // New registrations are always SUBMITTER
       status: 'PENDING',
-      verificationChannel: payload.verificationChannel,
+      verificationChannel: 'email',
       emailVerified: false,
       phoneVerified: false,
       passwordHash: hashPassword(password),
       previousPasswordHashes: [],
-      tradingName: payload.tradingName,
-      cipaNumber: payload.cipaNumber,
-      bursTin: payload.bursTin,
+      ...(payload.tradingName !== undefined ? { tradingName: payload.tradingName } : {}),
+      ...(payload.cipaNumber !== undefined ? { cipaNumber: payload.cipaNumber } : {}),
+      ...(payload.bursTin !== undefined ? { bursTin: payload.bursTin } : {}),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       failedLoginAttempts: 0,
       lockoutUntil: null,
     };
 
-    // Save user profile to Firestore
+    // Persist the complete profile before sending the user to OTP verification.
     try {
       await setDoc(doc(db, 'users', firebaseUid), newUser);
-    } catch (err) {
-      console.warn('Firestore user doc write note:', err);
+    } catch (err: unknown) {
+      console.error('Firestore user profile write failed:', err);
+      const details = err instanceof Error ? ` ${err.message}` : '';
+      throw new Error(`Your Firebase account was created, but its user profile could not be saved to Firestore.${details}`);
     }
 
     this.users.set(firebaseUid, newUser);
     this.saveUsers();
 
-    const demoOtpCode = '582491';
+    const demoOtpCode = firebaseConfig.apiKey.includes('MockKey') ? '582491' : undefined;
 
     return {
       success: true,
       userId: firebaseUid,
-      identifier: payload.verificationChannel === 'sms' ? payload.phone : email,
-      channel: payload.verificationChannel,
-      message: `Account created in pending state. 6-digit code dispatched via ${payload.verificationChannel.toUpperCase()}.`,
+      identifier: email,
+      channel: 'email',
+      message: 'Account created in pending state. An email verification link was sent.',
       nextStep: 'otp_verification',
-      demoOtpCode,
-      verificationId,
+      ...(demoOtpCode ? { demoOtpCode } : {}),
       isEmailVerificationSent,
     };
   }
 
+  private async activateVerifiedUser(user: UserProfile): Promise<UserProfile> {
+    if (!auth?.currentUser || auth.currentUser.uid !== user.id) {
+      throw new Error('Sign in with the email used to register, then retry email verification.');
+    }
+
+    const updatedAt = new Date().toISOString();
+    const verifiedUser: UserProfile = {
+      ...user,
+      status: 'ACTIVE',
+      emailVerified: true,
+      updatedAt,
+    };
+
+    try {
+      await setDoc(
+        doc(db, 'users', user.id),
+        {
+          status: 'ACTIVE',
+          emailVerified: true,
+          updatedAt,
+        },
+        { merge: true }
+      );
+    } catch (err: unknown) {
+      console.error('Firestore account activation failed:', err);
+      const details = err instanceof Error ? ` ${err.message}` : '';
+      throw new Error(`Your email was verified, but account activation could not be saved to Firestore.${details}`);
+    }
+
+    this.users.set(user.id, verifiedUser);
+    this.saveUsers();
+    return verifiedUser;
+  }
+
+  public async completeEmailVerification(
+    identifier: string,
+    actionCode?: string
+  ): Promise<UserProfile | null> {
+    if (!auth) return null;
+    await auth.authStateReady();
+
+    if (actionCode) {
+      try {
+        await applyActionCode(auth, actionCode);
+      } catch (err: unknown) {
+        const currentUser = auth.currentUser;
+        if (!currentUser) throw err;
+        await currentUser.reload();
+        if (!currentUser.emailVerified) throw err;
+      }
+    }
+
+    const currentUser = auth.currentUser;
+    if (!currentUser) return null;
+    await currentUser.reload();
+
+    if (!currentUser.emailVerified) return null;
+    if (currentUser.email?.trim().toLowerCase() !== identifier.trim().toLowerCase()) {
+      throw new Error('The confirmed email does not match the account currently signed in.');
+    }
+
+    const user = this.findUserByIdentifier(identifier);
+    if (!user) {
+      throw new Error('Your email is confirmed, but the matching Firestore profile could not be found.');
+    }
+
+    return this.activateVerifiedUser(user);
+  }
+
   /**
-   * 3. OTP VERIFICATION (Real Firebase ConfirmationResult + Email/Phone check)
+   * 3. EMAIL VERIFICATION
    */
   public async verifyOtp(payload: VerifyOtpRequest): Promise<VerifyOtpResponse> {
     await simulateLatency(300);
-    const user = this.findUserByIdentifier(payload.identifier);
 
-    const isDemoCode = payload.otpCode === '582491';
+    const isDemoCode =
+      payload.otpCode === '582491' && firebaseConfig.apiKey.includes('MockKey');
     let firebaseVerified = false;
 
-    // Check if we have an active Firebase Phone ConfirmationResult
-    if (activeConfirmationResult && payload.channel === 'sms' && !isDemoCode) {
-      try {
-        const userCredential = await activeConfirmationResult.confirm(payload.otpCode);
-        if (userCredential.user) {
-          firebaseVerified = true;
-        }
-      } catch (confirmErr) {
-        console.warn('Firebase confirmationResult.confirm failed:', confirmErr);
-      }
+    if (auth) await auth.authStateReady();
+    const currentUser = auth?.currentUser;
+    if (currentUser) {
+      await currentUser.reload();
+      firebaseVerified = currentUser.emailVerified;
     }
 
-    // Check if currentUser in Firebase has verified their email via the verification link
-    if (payload.channel === 'email' && auth.currentUser) {
-      try {
-        await auth.currentUser.reload();
-        if (auth.currentUser.emailVerified) {
-          firebaseVerified = true;
-        }
-      } catch {
-        // ignore reload error
-      }
-    }
-
-    // Allow verification if either Firebase confirmed, demo code matched, or valid 6-digit entered
-    const isCodeAccepted = firebaseVerified || isDemoCode || (payload.otpCode.length === 6 && payload.otpCode !== '903712');
-
-    if (!isCodeAccepted) {
+    if (!firebaseVerified && !isDemoCode) {
       return {
         success: false,
         accountActivated: false,
-        attemptsRemaining: 2,
-        message: 'Invalid verification code. Please check the 6-digit code sent to your device.',
+        message: 'Email verification is not complete yet. Open the link sent to your email and try again.',
       };
     }
 
+    const user = this.findUserByIdentifier(payload.identifier);
     if (!user) {
       return {
         success: false,
@@ -534,87 +515,48 @@ class AuthService {
       };
     }
 
-    user.status = 'ACTIVE';
-    if (payload.channel === 'email') {
-      user.emailVerified = true;
-    } else {
-      user.phoneVerified = true;
-    }
-    this.users.set(user.id, user);
-    this.saveUsers();
-
-    try {
-      await setDoc(
-        doc(db, 'users', user.id),
-        {
-          status: 'ACTIVE',
-          emailVerified: user.emailVerified,
-          phoneVerified: user.phoneVerified,
-          updatedAt: new Date().toISOString(),
-        },
-        { merge: true }
-      );
-    } catch {
-      // ignore
-    }
+    const verifiedUser = await this.activateVerifiedUser(user);
 
     return {
       success: true,
       accountActivated: true,
-      user,
+      user: verifiedUser,
       message: 'Account successfully verified and activated.',
     };
   }
 
-  public async resendOtp(identifier: string, channel: 'sms' | 'email') {
+  public async resendOtp(identifier: string) {
     await simulateLatency(300);
 
-    // If channel is SMS, re-trigger Firebase phone auth
-    if (channel === 'sms') {
-      try {
-        const cleanPhone = identifier.replace(/[\s\-\+]/g, '');
-        const fullPhoneNumber = identifier.startsWith('+') ? identifier : `+267${cleanPhone}`;
-        const verifier = this.getRecaptchaVerifier('recaptcha-container');
-        if (verifier) {
-          activeConfirmationResult = await signInWithPhoneNumber(auth, fullPhoneNumber, verifier);
-          console.info('Firebase Phone Auth OTP re-sent to:', fullPhoneNumber);
-        }
-      } catch (err) {
-        console.warn('Firebase resend Phone Auth note:', err);
-      }
+    const user = auth.currentUser;
+    if (!user || !user.email) {
+      throw new Error('Your Firebase sign-in session has expired. Sign in again before requesting email verification.');
+    }
+    if (user.email.toLowerCase() !== identifier.trim().toLowerCase()) {
+      throw new Error('Use the email address associated with your Firebase account.');
     }
 
-    // If channel is email, send verification email
-    if (channel === 'email') {
-      try {
-        const user = auth.currentUser;
-        if (user) {
-          const actionCodeSettings = {
-            url: `${window.location.origin}/otp-verification?target=${encodeURIComponent(identifier)}&channel=email`,
-            handleCodeInApp: true,
-          };
-          await sendEmailVerification(user, actionCodeSettings);
-          console.info('Firebase verification email re-sent successfully to:', user.email);
-        } else {
-          console.warn('Firebase currentUser is null when requesting email resend. User may need to sign in.');
-        }
-      } catch (err: any) {
-        console.error('Firebase resend email verification error:', err);
-        if (err?.code === 'auth/too-many-requests') {
-          return {
-            success: false,
-            message: 'Too many requests. Please wait a few moments before requesting another verification email.',
-            cooldownSeconds: 60,
-          };
-        }
+    const actionCodeSettings = {
+      url: `${window.location.origin}/otp-verification?target=${encodeURIComponent(user.email)}&channel=email`,
+      handleCodeInApp: true,
+    };
+    try {
+      await sendEmailVerification(user, actionCodeSettings);
+    } catch (err: unknown) {
+      console.error('Firebase resend email verification failed:', err);
+      const errorCode =
+        typeof err === 'object' && err !== null && 'code' in err ? err.code : undefined;
+      if (errorCode === 'auth/too-many-requests') {
+        throw new Error('Too many requests. Please wait a few moments before requesting another verification email.');
       }
+      throw err;
     }
 
     return {
       success: true,
-      message: `New verification code dispatched via ${channel.toUpperCase()}.`,
+      message: 'A new email verification link was sent.',
       cooldownSeconds: 30,
-      demoCode: '582491',
+      ...(firebaseConfig.apiKey.includes('MockKey') ? { demoCode: '582491' } : {}),
     };
   }
 
@@ -725,6 +667,16 @@ class AuthService {
     }
 
     const normalizedStatus = String(user.status || 'ACTIVE').toUpperCase();
+    if (normalizedStatus === 'PENDING') {
+      return {
+        success: false,
+        requiresOtp: true,
+        user,
+        message:
+          'Your account profile is still pending verification. Continue with email verification to activate it.',
+      };
+    }
+
     if (
       normalizedStatus === 'SUSPENDED' ||
       normalizedStatus === 'DEACTIVATED' ||
@@ -779,80 +731,51 @@ class AuthService {
   public async requestReset(payload: RequestResetRequest): Promise<RequestResetResponse> {
     const rawIdentifier = payload.identifier.trim();
     if (!rawIdentifier) {
-      throw new Error('Please enter your registered email address or mobile number.');
+      throw new Error('Please enter your registered email address.');
     }
 
-    let resolvedEmail = rawIdentifier.includes('@') ? rawIdentifier : '';
-    if (!resolvedEmail) {
-      const localMatch = this.findUserByIdentifier(rawIdentifier);
-      if (localMatch?.email) {
-        resolvedEmail = localMatch.email;
-      } else if (db) {
-        const cleanDigits = rawIdentifier.replace(/[\s\-\+]/g, '').replace(/^267/, '');
-        try {
-          const phoneSnap = await getDocs(
-            query(collection(db, 'users'), where('phone', '==', cleanDigits))
-          );
-          if (!phoneSnap.empty) {
-            const docData = phoneSnap.docs[0].data() as Record<string, unknown>;
-            if (typeof docData.email === 'string' && docData.email.trim()) {
-              resolvedEmail = docData.email.trim();
-            }
-          }
-        } catch {
-          // Firestore rules disallow unauthenticated user queries; user should enter email directly
-        }
-      }
+    if (!auth || firebaseConfig.apiKey.includes('MockKey')) {
+      throw new Error(
+        'Firebase Auth is not configured with live credentials. Check .env and restart the dev server.'
+      );
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawIdentifier)) {
+      throw new Error('Please enter a valid registered email address.');
     }
 
-    if (payload.channel === 'email') {
-      if (!auth || firebaseConfig.apiKey.includes('MockKey')) {
+    try {
+      auth.languageCode = 'en';
+      await sendPasswordResetEmail(auth, rawIdentifier);
+    } catch (err: unknown) {
+      const code = (err as { code?: string })?.code || '';
+      if (code === 'auth/too-many-requests') {
         throw new Error(
-          'Firebase Auth is not configured with live credentials. Check .env and restart the dev server.'
+          'Too many password reset requests. Please wait a few minutes and try again.'
         );
       }
-      if (!resolvedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(resolvedEmail)) {
+      if (code === 'auth/invalid-email') {
+        throw new Error('The email address entered is invalid.');
+      }
+      if (code === 'auth/network-request-failed') {
         throw new Error(
-          'Please enter your registered email address so Firebase can dispatch the reset link.'
+          'Network error while contacting Firebase Authentication. Check your connection and retry.'
         );
       }
-
-      try {
-        auth.languageCode = 'en';
-        await sendPasswordResetEmail(auth, resolvedEmail);
-      } catch (err: unknown) {
-        const code = (err as { code?: string })?.code || '';
-        if (code === 'auth/too-many-requests') {
-          throw new Error(
-            'Too many password reset requests. Please wait a few minutes and try again.'
-          );
-        }
-        if (code === 'auth/invalid-email') {
-          throw new Error('The email address entered is invalid.');
-        }
-        if (code === 'auth/network-request-failed') {
-          throw new Error(
-            'Network error while contacting Firebase Authentication. Check your connection and retry.'
-          );
-        }
-        if (code === 'auth/operation-not-allowed') {
-          throw new Error('Email/Password authentication is disabled in Firebase Console.');
-        }
-        if (code === 'auth/invalid-api-key') {
-          throw new Error('Invalid Firebase API key configuration.');
-        }
-        if (code !== 'auth/user-not-found') {
-          throw err instanceof Error ? err : new Error('Failed to dispatch password reset email.');
-        }
+      if (code === 'auth/operation-not-allowed') {
+        throw new Error('Email/Password authentication is disabled in Firebase Console.');
       }
-    } else {
-      await simulateLatency(300);
+      if (code === 'auth/invalid-api-key') {
+        throw new Error('Invalid Firebase API key configuration.');
+      }
+      if (code !== 'auth/user-not-found') {
+        throw err instanceof Error ? err : new Error('Failed to dispatch password reset email.');
+      }
     }
 
     return {
       success: true,
       message: 'If an account exists, instructions have been sent.',
-      deliveryChannel: payload.channel,
+      deliveryChannel: 'email',
       resendCooldownSeconds: 45,
       demoToken: 'demo-valid-token',
       demoCode: '492815',

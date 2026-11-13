@@ -86,7 +86,7 @@ export interface RegisterRequest {
   tradingName?: string;
   cipaNumber?: string;
   bursTin?: string;
-  verificationChannel: VerificationChannel;
+  verificationChannel: 'email';
   password: string;
   confirmPassword: string;
   bdpaConsent: boolean;
@@ -96,19 +96,17 @@ export interface RegisterResponse {
   success: boolean;
   userId: string;
   identifier: string;
-  channel: VerificationChannel;
+  channel: 'email';
   message: string;
   nextStep: 'otp_verification';
-  demoOtpCode: string;
-  verificationId?: string; // Firebase Phone Auth verificationId
+  demoOtpCode?: string;
   isEmailVerificationSent?: boolean; // Firebase Email verification sent flag
 }
 
 export interface VerifyOtpRequest {
-  identifier: string; // phone or email
+  identifier: string; // email
   otpCode: string;
-  channel: VerificationChannel;
-  verificationId?: string; // Firebase Phone Auth verificationId
+  channel: 'email';
 }
 
 export interface VerifyOtpResponse {
@@ -123,10 +121,9 @@ export interface VerifyOtpResponse {
 }
 
 export interface LoginRequest {
-  method: 'password' | 'otp' | 'biometric';
+  method: 'password' | 'biometric';
   identifier: string; // phone or email
   password?: string;
-  otpCode?: string;
   rememberDevice: boolean;
 }
 
@@ -141,14 +138,14 @@ export interface LoginResponse {
 }
 
 export interface RequestResetRequest {
-  identifier: string; // phone or email
-  channel: VerificationChannel;
+  identifier: string; // email
+  channel: 'email';
 }
 
 export interface RequestResetResponse {
   success: boolean;
   message: string; // Must always be generic anti-enumeration
-  deliveryChannel: VerificationChannel;
+  deliveryChannel: 'email';
   resendCooldownSeconds: number;
   demoToken?: string;
   demoCode?: string;

@@ -33,7 +33,7 @@ export async function seedFirestoreCollections(): Promise<{ success: boolean; me
       accountType: 'individual',
       role: 'SUBMITTER',
       status: 'ACTIVE',
-      verificationChannel: 'sms',
+      verificationChannel: 'email',
       emailVerified: true,
       phoneVerified: true,
       passwordHash: 'seeded-bcrypt-hash-placeholder',

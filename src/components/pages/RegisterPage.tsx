@@ -8,7 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import { authService } from '../../services/authService';
 import { BOTSWANA_DISTRICTS } from '../../config/districts';
 import { evaluatePassword } from '../../services/passwordPolicy';
-import { AccountType, VerificationChannel } from '../../types/auth';
+import { AccountType } from '../../types/auth';
 
 export const RegisterPage: React.FC = () => {
   const { setCurrentRoute, language } = useAuth();
@@ -23,7 +23,6 @@ export const RegisterPage: React.FC = () => {
   const [selectedTown, setSelectedTown] = useState('Gaborone');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
-  const [verificationChannel, setVerificationChannel] = useState<VerificationChannel>('sms');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [bdpaConsent, setBdpaConsent] = useState(false);
@@ -123,17 +122,16 @@ export const RegisterPage: React.FC = () => {
         tradingName: accountType === 'business' ? tradingName : undefined,
         cipaNumber: accountType === 'business' ? cipaNumber : undefined,
         bursTin: accountType === 'business' ? bursTin : undefined,
-        verificationChannel,
+        verificationChannel: 'email',
         password,
         confirmPassword,
         bdpaConsent,
       });
 
       // Successful registration: Route to OTP verification with identifier & Firebase tracking params
-      const target = verificationChannel === 'sms' ? phone : email;
-      const vIdParam = response.verificationId ? `&vid=${encodeURIComponent(response.verificationId)}` : '';
+      const demoCodeParam = response.demoOtpCode ? `&code=${response.demoOtpCode}` : '';
       const emailSentParam = response.isEmailVerificationSent ? `&emailSent=true` : '';
-      setCurrentRoute(`/otp-verification?target=${encodeURIComponent(target)}&channel=${verificationChannel}&code=${response.demoOtpCode}${vIdParam}${emailSentParam}`);
+      setCurrentRoute(`/otp-verification?target=${encodeURIComponent(email)}&channel=email${demoCodeParam}${emailSentParam}`);
     } catch (err: unknown) {
       setServerError(err instanceof Error ? err.message : 'Registration failed. Please try again.');
     } finally {
@@ -143,8 +141,6 @@ export const RegisterPage: React.FC = () => {
 
   return (
     <div className="w-full min-h-[calc(100vh-5rem)] bg-[#fdf9f4] py-8 lg:py-12">
-      {/* Invisible container for Firebase Phone Auth reCAPTCHA */}
-      <div id="recaptcha-container" aria-hidden="true" className="invisible fixed top-0 left-0"></div>
       <div className="max-w-[1200px] mx-auto px-4 md:px-8">
         {/* Breadcrumb & Security Trust Strip */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6 text-xs text-[#5a413c]">
@@ -704,58 +700,19 @@ export const RegisterPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* 6. Verification Channel Radio (SMS default vs Email) */}
+                {/* 6. Email Verification */}
                 <fieldset className="flex flex-col gap-1.5 pt-1">
                   <legend className="text-xs font-bold text-[#1c1c19]">
-                    Account verification channel <span className="text-[#ba1a1a]">* Required</span>
+                    Account verification
                   </legend>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" role="radiogroup">
-                    <label
-                      className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
-                        verificationChannel === 'sms'
-                          ? 'border-2 border-[#a02010] bg-[#ffd3c8]/20 shadow-xs'
-                          : 'border-[#e2bfb8] bg-[#f7f3ee] hover:bg-white text-[#5a413c]'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="channel"
-                        checked={verificationChannel === 'sms'}
-                        onChange={() => setVerificationChannel('sms')}
-                        className="mt-0.5 accent-[#a02010] w-4 h-4"
-                      />
-                      <div className="flex flex-col">
-                        <span className="text-xs font-bold text-[#1c1c19] flex items-center gap-1">
-                          <span>SMS (Fastest)</span>
-                          <span className="text-[10px] text-[#a02010] font-semibold">(Recommended)</span>
-                        </span>
-                        <span className="text-[11px] text-[#5a413c]">
-                          Instant 6-digit OTP dispatched to your Botswana SIM.
-                        </span>
-                      </div>
-                    </label>
-
-                    <label
-                      className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
-                        verificationChannel === 'email'
-                          ? 'border-2 border-[#a02010] bg-[#ffd3c8]/20 shadow-xs'
-                          : 'border-[#e2bfb8] bg-[#f7f3ee] hover:bg-white text-[#5a413c]'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="channel"
-                        checked={verificationChannel === 'email'}
-                        onChange={() => setVerificationChannel('email')}
-                        className="mt-0.5 accent-[#a02010] w-4 h-4"
-                      />
-                      <div className="flex flex-col">
-                        <span className="text-xs font-bold text-[#1c1c19]">Email confirmation</span>
-                        <span className="text-[11px] text-[#5a413c]">
-                          Secure 6-digit OTP delivered directly to your inbox.
-                        </span>
-                      </div>
-                    </label>
+                  <div className="flex items-start gap-3 p-3 rounded-xl border-2 border-[#a02010] bg-[#ffd3c8]/20 shadow-xs">
+                    <span className="material-symbols-outlined text-[#a02010]">mail</span>
+                    <div className="flex flex-col">
+                      <span className="text-xs font-bold text-[#1c1c19]">Email verification</span>
+                      <span className="text-[11px] text-[#5a413c]">
+                        A verification email will be sent to {email || 'your registered email address'}.
+                      </span>
+                    </div>
                   </div>
                 </fieldset>
 
@@ -977,13 +934,13 @@ export const RegisterPage: React.FC = () => {
                       </>
                     ) : (
                       <>
-                        <span>Create account and send code</span>
+                        <span>Create account and send verification email</span>
                         <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
                       </>
                     )}
                   </button>
                   <p className="text-center text-[11px] text-[#77574e] mt-2">
-                    Next step: 6-digit OTP verification via mobile SMS or email.
+                    Next step: verify your account using the email we send you.
                   </p>
                 </div>
 
