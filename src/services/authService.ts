@@ -367,32 +367,30 @@ class AuthService {
       }
     } catch (err: unknown) {
       console.error('Firebase Auth registration error:', err);
-<<<<<<< HEAD
       const errorCode =
-        typeof err === 'object' && err !== null && 'code' in err ? err.code : undefined;
+        typeof err === 'object' &&
+        err !== null &&
+        'code' in err &&
+        typeof err.code === 'string'
+          ? err.code
+          : '';
       if (errorCode === 'auth/email-already-in-use') {
         throw new Error('This email address is already registered. Please log in or use another email.');
       } else if (errorCode === 'auth/invalid-email') {
         throw new Error('The email address provided is invalid.');
       } else if (errorCode === 'auth/operation-not-allowed') {
-=======
-      const code = err?.code || '';
-      if (code === 'auth/email-already-in-use') {
-        throw new Error('This email address is already registered. Please log in or use another email.');
-      } else if (code === 'auth/invalid-email') {
-        throw new Error('The email address provided is invalid.');
-      } else if (code === 'auth/operation-not-allowed') {
->>>>>>> b9d00eb498543432e7f03a179d6924c6fc7898cc
         throw new Error('Email/password sign-in is not enabled in Firebase Console.');
-      } else if (code === 'auth/weak-password') {
+      } else if (errorCode === 'auth/weak-password') {
         throw new Error('Password does not meet Firebase strength requirements.');
-      } else if (code === 'auth/unauthorized-domain') {
+      } else if (errorCode === 'auth/unauthorized-domain') {
         throw new Error(
           'This hosting domain is not authorized in Firebase Authentication. Add it under Firebase Console → Authentication → Settings → Authorized domains.'
         );
       } else if (!firebaseConfig.apiKey.includes('MockKey')) {
         throw new Error(
-          err?.message || 'Unable to register account in Firebase Authentication. Please try again.'
+          err instanceof Error
+            ? err.message
+            : 'Unable to register account in Firebase Authentication. Please try again.'
         );
       }
       throw err;
