@@ -20,17 +20,15 @@ export const OtpVerificationPage: React.FC = () => {
   const latestUser = authService.getLatestPendingUser();
 
   const paramTarget = urlParams.get('target');
+  const paramChannel = urlParams.get('channel') as VerificationChannel | null;
   const autofillCode = urlParams.get('autofill') || urlParams.get('code') || '';
-  const actionCode =
-    urlParams.get('mode') === 'verifyEmail' ? urlParams.get('oobCode') || undefined : undefined;
-  const isDemoVerification = autofillCode.length === 6;
+  const initialVid = urlParams.get('vid') || '';
   const isEmailSent = urlParams.get('emailSent') === 'true';
   const simulateParam = urlParams.get('simulate') || '';
 
-  const initialTarget =
-    (paramTarget?.includes('@') ? paramTarget : undefined) ||
-    latestUser?.email ||
-    'innovator@ceda.co.bw';
+  // Determine initial channel & destination
+  const initialChannel: VerificationChannel = paramChannel || (latestUser?.verificationChannel) || 'sms';
+  const initialTarget: string = paramTarget || (initialChannel === 'email' ? latestUser?.email || 'innovator@ceda.co.bw' : (latestUser?.phone ? `+267 ${latestUser.phone}` : '+267 71 234 567'));
 
   // 6 discrete digits state
   const [digits, setDigits] = useState<string[]>(() => {
@@ -40,20 +38,31 @@ export const OtpVerificationPage: React.FC = () => {
     return ['', '', '', '', '', ''];
   });
 
-  const channel: VerificationChannel = 'email';
+  const [channel, setChannel] = useState<VerificationChannel>(initialChannel);
   const [destination, setDestination] = useState<string>(initialTarget);
+  const [verificationId, setVerificationId] = useState<string>(initialVid);
 
   // Sync state if currentRoute changes with new query params
   useEffect(() => {
     const freshSearch = currentRoute.includes('?') ? currentRoute.substring(currentRoute.indexOf('?')) : window.location.search || '';
     const freshParams = new URLSearchParams(freshSearch);
     const freshTarget = freshParams.get('target');
+    const freshChannel = freshParams.get('channel') as VerificationChannel | null;
+    const freshVid = freshParams.get('vid');
     const freshCode = freshParams.get('autofill') || freshParams.get('code');
 
-    if (freshTarget?.includes('@')) {
+    if (freshChannel) {
+      setChannel(freshChannel);
+    }
+    if (freshTarget) {
       setDestination(freshTarget);
-    } else if (latestUser?.email) {
+    } else if (freshChannel === 'email' && latestUser?.email) {
       setDestination(latestUser.email);
+    } else if (freshChannel === 'sms' && latestUser?.phone) {
+      setDestination(`+267 ${latestUser.phone}`);
+    }
+    if (freshVid) {
+      setVerificationId(freshVid);
     }
     if (freshCode && freshCode.length === 6) {
       setDigits(freshCode.split(''));
@@ -75,36 +84,6 @@ export const OtpVerificationPage: React.FC = () => {
 
   // Input refs for keyboard navigation
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
-
-  useEffect(() => {
-    let active = true;
-    let redirectTimer: ReturnType<typeof setTimeout> | undefined;
-
-    const completeVerifiedEmail = async () => {
-      try {
-        const user = await authService.completeEmailVerification(destination, actionCode);
-        if (!user || !active) return;
-
-        setStatus('success');
-        setStatusMessage('Email confirmed. Activating your CEDA profile...');
-        redirectTimer = setTimeout(() => {
-          if (active) loginAs(user);
-        }, 1500);
-      } catch (err: unknown) {
-        if (!active) return;
-        setStatus('error');
-        setStatusMessage(
-          err instanceof Error ? err.message : 'Could not complete email verification.'
-        );
-      }
-    };
-
-    void completeVerifiedEmail();
-    return () => {
-      active = false;
-      if (redirectTimer) clearTimeout(redirectTimer);
-    };
-  }, [actionCode, currentRoute, destination, loginAs]);
 
   // Handle URL simulate parameters if triggered from demo switcher
   useEffect(() => {
@@ -160,6 +139,19 @@ export const OtpVerificationPage: React.FC = () => {
       inputRefs.current[0].focus();
     }
   }, []);
+
+  // Channel toggle
+  const handleToggleChannel = () => {
+    if (channel === 'sms') {
+      setChannel('email');
+      const emailDest = latestUser?.email || (destination.includes('@') ? destination : 'k****e@innovate.co.bw');
+      setDestination(emailDest);
+    } else {
+      setChannel('sms');
+      const phoneDest = latestUser?.phone ? `+267 ${latestUser.phone}` : (!destination.includes('@') ? destination : '+267 71 234 567');
+      setDestination(phoneDest);
+    }
+  };
 
   // Input change handler (Numeric only + auto-advance)
   const handleDigitChange = (index: number, value: string) => {
@@ -225,6 +217,7 @@ export const OtpVerificationPage: React.FC = () => {
         identifier: destination,
         otpCode: codeToVerify,
         channel,
+        verificationId,
       });
 
       if (res.success && res.accountActivated) {
@@ -268,30 +261,7 @@ export const OtpVerificationPage: React.FC = () => {
     }
   };
 
-  const checkEmailVerification = async () => {
-    setStatus('verifying');
-    setStatusMessage('');
-
-    try {
-      const user = await authService.completeEmailVerification(destination, actionCode);
-      if (!user) {
-        setStatus('error');
-        setStatusMessage('Email verification is not complete yet. Open the link in your inbox, then check again.');
-        return;
-      }
-
-      setStatus('success');
-      setStatusMessage('Email confirmed. Activating your CEDA profile...');
-      setTimeout(() => loginAs(user), 1500);
-    } catch (err: unknown) {
-      setStatus('error');
-      setStatusMessage(
-        err instanceof Error ? err.message : 'Could not complete email verification.'
-      );
-    }
-  };
-
-  // Resend email verification link
+  // Resend code handler
   const handleResend = async () => {
     if (resendCooldown > 0 || isResending) return;
 
@@ -299,14 +269,12 @@ export const OtpVerificationPage: React.FC = () => {
     setStatusMessage('');
 
     try {
-      const res = await authService.resendOtp(destination);
+      const res = await authService.resendOtp(destination, channel);
       setResendCooldown(30);
       setExpirySeconds(300);
       setDigits(['', '', '', '', '', '']);
       setStatus('idle');
-      setStatusMessage(
-        res.demoCode ? `${res.message} (Demo code: ${res.demoCode})` : res.message
-      );
+      setStatusMessage(`New code sent via ${channel.toUpperCase()}! (Demo code: ${res.demoCode})`);
       inputRefs.current[0]?.focus();
     } catch (err: unknown) {
       setStatus('error');
@@ -324,6 +292,8 @@ export const OtpVerificationPage: React.FC = () => {
 
   return (
     <div className="w-full min-h-[calc(100vh-5rem)] bg-[#fdf9f4] py-12 px-4 flex flex-col items-center justify-center">
+      {/* Invisible container for Firebase Phone Auth reCAPTCHA */}
+      <div id="recaptcha-container" aria-hidden="true" className="invisible fixed top-0 left-0"></div>
       {/* Container capped at 560px */}
       <div className="w-full max-w-[560px] flex flex-col items-center">
         {/* Institutional Emblem Lockup */}
@@ -357,18 +327,29 @@ export const OtpVerificationPage: React.FC = () => {
               {language === 'Setswana' ? 'Tlhomamisa Akhaonto ya Gago' : 'Verify your account'}
             </h1>
 
-            {/* Email Destination */}
+            {/* Destination Description & Channel Switcher */}
             <div className="mt-2 flex flex-col items-center gap-1">
               <p className="text-sm text-[#5a413c]">
                 {language === 'Setswana'
-                  ? 'Re rometse molaetsa wa netefatso kwa'
-                  : isEmailSent
-                    ? 'We sent an account verification email to'
-                    : 'Check the account verification email for'}{' '}
+                  ? 'Re rometse khoutu ya dinomoro tse 6 kwa ho'
+                  : 'We sent a 6-digit authentication code to'}{' '}
                 <span className="font-bold text-[#1c1c19] tabular-nums tracking-wide">
                   {destination}
                 </span>
               </p>
+
+              <button
+                type="button"
+                onClick={handleToggleChannel}
+                className="inline-flex items-center gap-1 text-xs font-semibold text-[#a02010] hover:underline cursor-pointer focus:outline-none"
+              >
+                <span className="material-symbols-outlined text-[16px]">swap_horiz</span>
+                <span>
+                  {channel === 'sms'
+                    ? 'Use registered email instead'
+                    : 'Use SMS phone number (+267) instead'}
+                </span>
+              </button>
             </div>
           </div>
 
@@ -425,15 +406,10 @@ export const OtpVerificationPage: React.FC = () => {
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              if (isDemoVerification) {
-                verifyCode(digits.join(''));
-              } else {
-                checkEmailVerification();
-              }
+              verifyCode(digits.join(''));
             }}
             className="flex flex-col gap-6"
           >
-            {isDemoVerification ? (
             <div>
               <label
                 htmlFor="digit-0"
@@ -484,28 +460,17 @@ export const OtpVerificationPage: React.FC = () => {
                 <span>Tip: You can paste the complete 6-digit code directly</span>
               </div>
             </div>
-            ) : (
-              <div className="rounded-xl border border-[#e2bfb8] bg-[#f7f3ee] p-4 text-center text-sm text-[#5a413c]">
-                Open the verification link in your email. This page will activate your profile after Firebase confirms it.
-              </div>
-            )}
 
             {/* Countdown and Resend Controls Matrix */}
             <div className="flex flex-col sm:flex-row items-center justify-between gap-2 bg-[#f7f3ee] p-3.5 rounded-xl border border-[#e2bfb8]/60 text-xs">
               <div className="flex items-center gap-2 text-[#1c1c19]">
                 <span className="material-symbols-outlined text-[#77574e] text-[18px]">
-                  {isDemoVerification ? 'hourglass_top' : 'mail'}
+                  hourglass_top
                 </span>
-                {isDemoVerification ? (
-                  <>
-                    <span className="text-[#5a413c]">Code expires in:</span>
-                    <span className="font-mono font-bold text-[#a02010] tabular-nums">
-                      {formatSeconds(expirySeconds)}
-                    </span>
-                  </>
-                ) : (
-                  <span className="text-[#5a413c]">Email verification link</span>
-                )}
+                <span className="text-[#5a413c]">Code expires in:</span>
+                <span className="font-mono font-bold text-[#a02010] tabular-nums">
+                  {formatSeconds(expirySeconds)}
+                </span>
               </div>
 
               <div className="flex items-center gap-1">
@@ -519,7 +484,7 @@ export const OtpVerificationPage: React.FC = () => {
                       : 'text-[#a02010] hover:underline cursor-pointer'
                   }`}
                 >
-                  {isResending ? 'Sending...' : 'Resend verification email'}
+                  {isResending ? 'Sending...' : 'Resend code'}
                 </button>
                 {resendCooldown > 0 && (
                   <span className="text-[#77574e] tabular-nums">
@@ -533,15 +498,9 @@ export const OtpVerificationPage: React.FC = () => {
             <div className="flex flex-col gap-2">
               <button
                 type="submit"
-                disabled={
-                  (isDemoVerification && digits.some((d) => d === '')) ||
-                  status === 'locked' ||
-                  status === 'verifying'
-                }
+                disabled={digits.some((d) => d === '') || status === 'locked' || status === 'verifying'}
                 className={`w-full h-12 font-headline text-sm font-bold tracking-wide rounded-xl shadow-md transition-all flex items-center justify-center gap-2 ${
-                  (!isDemoVerification || digits.every((d) => d !== '')) &&
-                  status !== 'locked' &&
-                  status !== 'verifying'
+                  digits.every((d) => d !== '') && status !== 'locked' && status !== 'verifying'
                     ? 'bg-[#a02010] hover:bg-[#861a0d] active:bg-[#6e1409] text-white cursor-pointer hover:shadow-lg'
                     : 'bg-[#e6e2dd] text-[#8d706b] cursor-not-allowed'
                 }`}
@@ -551,7 +510,7 @@ export const OtpVerificationPage: React.FC = () => {
                     <span className="material-symbols-outlined text-[20px] animate-spin">
                       progress_activity
                     </span>
-                    <span>Checking email...</span>
+                    <span>Verifying code...</span>
                   </>
                 ) : status === 'success' ? (
                   <>
@@ -560,7 +519,7 @@ export const OtpVerificationPage: React.FC = () => {
                   </>
                 ) : (
                   <>
-                    <span>{isDemoVerification ? 'Verify & Continue' : 'Check verification status'}</span>
+                    <span>Verify &amp; Continue</span>
                     <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
                   </>
                 )}
@@ -573,7 +532,7 @@ export const OtpVerificationPage: React.FC = () => {
                   className="inline-flex items-center gap-1 text-xs text-[#77574e] hover:text-[#a02010] transition-colors"
                 >
                   <span className="material-symbols-outlined text-[16px]">edit_note</span>
-                  <span>Change registration details</span>
+                  <span>Change phone number or email address</span>
                 </button>
               </div>
             </div>
@@ -585,23 +544,16 @@ export const OtpVerificationPage: React.FC = () => {
               <span className="material-symbols-outlined text-[#a02010] text-[18px] shrink-0 mt-0.5">
                 shield
               </span>
-              {isDemoVerification ? (
-                <p className="leading-relaxed">
-                  <strong className="text-[#1c1c19]">Security Notice:</strong> Never share your one-time
-                  verification code with anyone, including CEDA loan officers or support staff.
-                </p>
-              ) : (
-                <p className="leading-relaxed">
-                  <strong className="text-[#1c1c19]">Email verification:</strong> Open the link sent to
-                  your registered email address to activate your account.
-                </p>
-              )}
+              <p className="leading-relaxed">
+                <strong className="text-[#1c1c19]">Security Notice:</strong> Never share your one-time
+                verification code with anyone, including CEDA loan officers or support staff. CEDA will
+                never request this token over voice call.
+              </p>
             </div>
           </div>
         </div>
 
         {/* Prototype Quick Diagnostic Controls */}
-        {isDemoVerification && (
         <div className="w-full max-w-[560px] mt-4 p-3 bg-white rounded-xl border border-[#e2bfb8] flex flex-wrap items-center justify-between gap-2 text-xs">
           <span className="text-[#77574e] font-bold">Prototype Quick Fill:</span>
           <div className="flex items-center gap-2">
@@ -625,7 +577,6 @@ export const OtpVerificationPage: React.FC = () => {
             </button>
           </div>
         </div>
-        )}
 
         {/* Regulatory Footnote */}
         <div className="mt-6 flex flex-wrap items-center justify-center gap-3 text-xs text-[#77574e] text-center">

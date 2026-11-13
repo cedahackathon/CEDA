@@ -178,6 +178,32 @@ export const SUBMITTER_STRONG_TIPS: SubmissionTip[] = [
   },
 ];
 
+export interface DocumentTipItem {
+  id: string;
+  title: string;
+  detail: string;
+  url?: string | null;
+  linkLabel?: string;
+}
+
+export const SUBMITTER_DOCUMENT_TIPS: DocumentTipItem[] = [
+  {
+    id: 'doc-tip-clarity',
+    title: 'Document clarity',
+    detail: 'Ensure all corners, seals, and text on scans or photos are sharp and legible.',
+  },
+  {
+    id: 'doc-tip-pula',
+    title: 'Currency in Pula',
+    detail: 'Financial schedules and quotations should state figures in Botswana Pula (BWP).',
+  },
+  {
+    id: 'doc-tip-formats',
+    title: 'PDF formats',
+    detail: 'Export pitch decks to PDF where possible so layout and charts display consistently for reviewers.',
+  },
+];
+
 export const SUBMITTER_STAGES = [
   { step: 1, key: 'submission', label: 'Submission' },
   { step: 2, key: 'review', label: 'Review' },
@@ -193,8 +219,35 @@ export const SUBMITTER_WIZARD_STEPS = [
   { step: 4, key: 'review', label: 'Review and submit', path: '/submit/review' },
 ] as const;
 
+export const DECLARATION_SUMMARY_TEXT =
+  'I declare that I am a citizen of Botswana, or represent a 100% citizen-owned entity, and that the information I give is true.';
+
 export const STATUTORY_DECLARATION_TEXT =
   'I declare that I am a citizen of the Republic of Botswana, or an authorised representative of a 100% citizen-owned entity registered in Botswana, and that all identity, contact, location, and enterprise details supplied in this submission are true, accurate, and complete. I acknowledge that my personal data is processed strictly for CEDA innovation evaluation under the Botswana Data Protection Act (BDPA) and that misrepresentation may disqualify the application.';
+
+export interface WhatHappensNextItem {
+  step: number;
+  title: string;
+  detail: string;
+}
+
+export const SUBMITTER_WHAT_HAPPENS_NEXT: WhatHappensNextItem[] = [
+  {
+    step: 1,
+    title: 'Reference assignment',
+    detail: 'Your submission receives a CEDA reference number once recorded.',
+  },
+  {
+    step: 2,
+    title: 'Initial screening',
+    detail: 'CEDA reviewers check eligibility and supporting attachments.',
+  },
+  {
+    step: 3,
+    title: 'Portal updates',
+    detail: 'Follow review progress and respond to feedback requests in My submissions.',
+  },
+];
 
 export const GENDER_OPTIONS = [
   'Male',

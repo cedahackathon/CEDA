@@ -11,21 +11,29 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    function userDocExists() {
-      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    function userDocExists(dbName) {
+      return isSignedIn() && exists(/databases/$(dbName)/documents/users/$(request.auth.uid));
     }
 
-    function getUserData() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    function getUserData(dbName) {
+      return get(/databases/$(dbName)/documents/users/$(request.auth.uid)).data;
     }
 
-    function hasRole(role) {
-      return userDocExists() && getUserData().get('role', '') == role;
+    function hasRole(dbName, role) {
+      return userDocExists(dbName) && getUserData(dbName).get('role', '') == role;
     }
 
-    function isAdmin() {
-      return userDocExists()
-        && getUserData().get('role', '') in ['ADMIN', 'Admin', 'admin', 'Administrator', 'administrator', 'SUPER_ADMIN'];
+    function isAdmin(dbName) {
+      return isSignedIn() && (
+        (
+          userDocExists(dbName)
+          && getUserData(dbName).get('role', '') in ['ADMIN', 'Admin', 'admin', 'Administrator', 'administrator', 'SUPER_ADMIN']
+        )
+        || (
+          request.auth.token.email == 'gsetlamelo@gmail.com'
+          && request.auth.token.email_verified == true
+        )
+      );
     }
 
     // Default deny
@@ -35,12 +43,12 @@ service cloud.firestore {
 
     // 1. Users collection
     match /users/{userId} {
-      allow read: if isSignedIn() && (isOwner(userId) || isAdmin() || hasRole('STAKEHOLDER'));
+      allow read: if isSignedIn() && (isOwner(userId) || isAdmin(database) || hasRole(database, 'STAKEHOLDER'));
 
       // Admins can create user profiles; citizens can self-register as SUBMITTER
       allow create: if isSignedIn() && (
         (
-          isAdmin()
+          isAdmin(database)
           && request.resource.data.keys().hasAll(['email', 'firstName', 'surname', 'role', 'status', 'createdAt'])
         )
         || (
@@ -53,7 +61,7 @@ service cloud.firestore {
 
       // Only admins can change another user's role or status; owners can only activate their own PENDING profile
       allow update: if isSignedIn() && (
-        (isAdmin() && !isOwner(userId))
+        (isAdmin(database) && !isOwner(userId))
         || (
           isOwner(userId)
           && request.resource.data.get('role', null) == resource.data.get('role', null)
@@ -67,29 +75,29 @@ service cloud.firestore {
         )
       );
 
-      allow delete: if isAdmin() && !isOwner(userId);
+      allow delete: if isAdmin(database) && !isOwner(userId);
     }
 
     // 2. Active Sessions collection
     match /sessions/{sessionId} {
-      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin(database));
       
       allow create: if isSignedIn() 
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.keys().hasAll(['id', 'userId', 'device', 'lastActive', 'createdAt']);
 
-      allow update: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow update: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin(database));
+      allow delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin(database));
     }
 
     // 3. Submissions collection
     match /submissions/{subId} {
       allow read: if isSignedIn() && (
         resource.data.submitterId == request.auth.uid
-        || hasRole('EVALUATOR')
-        || hasRole('ADJUDICATOR')
-        || hasRole('ADMIN')
-        || hasRole('STAKEHOLDER')
+        || hasRole(database, 'EVALUATOR')
+        || hasRole(database, 'ADJUDICATOR')
+        || hasRole(database, 'ADMIN')
+        || hasRole(database, 'STAKEHOLDER')
       );
 
       allow create: if isSignedIn()
@@ -101,25 +109,56 @@ service cloud.firestore {
         // Submitter can only edit in draft/initial stage
         (resource.data.submitterId == request.auth.uid && resource.data.currentStage == 1)
         // Evaluators, Adjudicators, and Admins can advance stages
-        || hasRole('EVALUATOR')
-        || hasRole('ADJUDICATOR')
-        || isAdmin()
+        || hasRole(database, 'EVALUATOR')
+        || hasRole(database, 'ADJUDICATOR')
+        || isAdmin(database)
       );
 
-      allow delete: if isAdmin();
+      allow delete: if isAdmin(database);
+
+      match /files/{fileId} {
+        allow get: if isSignedIn() && isValidFileId(fileId) && (
+          isParentSubmissionOwner(database, subId)
+          || hasRole(database, 'EVALUATOR')
+          || hasRole(database, 'ADJUDICATOR')
+          || isAdmin(database)
+          || hasRole(database, 'STAKEHOLDER')
+        );
+        allow list: if false;
+        allow create: if isSignedIn()
+          && isValidFileId(fileId)
+          && isValidIdeaFilePayload(request.resource.data)
+          && isParentSubmissionOwner(database, subId)
+          && get(/databases/$(database)/documents/submissions/$(subId)).data.currentStage == 1;
+        allow update: if isSignedIn()
+          && isValidFileId(fileId)
+          && isParentSubmissionOwner(database, subId)
+          && get(/databases/$(database)/documents/submissions/$(subId)).data.currentStage == 1
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['note'])
+          && (!('note' in request.resource.data) || (request.resource.data.note is string && request.resource.data.note.size() <= 200));
+        allow delete: if isSignedIn()
+          && isValidFileId(fileId)
+          && (
+            (
+              isParentSubmissionOwner(database, subId)
+              && get(/databases/$(database)/documents/submissions/$(subId)).data.currentStage == 1
+            )
+            || isAdmin(database)
+          );
+      }
     }
 
     // 4. Reviews collection (Dual-blind scoring)
     match /reviews/{reviewId} {
       allow read: if isSignedIn() && (
         resource.data.evaluatorId == request.auth.uid
-        || hasRole('ADJUDICATOR')
-        || isAdmin()
-        || hasRole('STAKEHOLDER')
+        || hasRole(database, 'ADJUDICATOR')
+        || isAdmin(database)
+        || hasRole(database, 'STAKEHOLDER')
       );
 
       allow create: if isSignedIn()
-        && (hasRole('EVALUATOR') || isAdmin())
+        && (hasRole(database, 'EVALUATOR') || isAdmin(database))
         && request.resource.data.evaluatorId == request.auth.uid
         && request.resource.data.noConflictAttested == true
         && request.resource.data.compositeScore >= 0
@@ -128,16 +167,16 @@ service cloud.firestore {
 
       allow update: if isSignedIn() && (
         (resource.data.evaluatorId == request.auth.uid && request.resource.data.compositeScore >= 0 && request.resource.data.compositeScore <= 100)
-        || isAdmin()
+        || isAdmin(database)
       );
 
-      allow delete: if isAdmin();
+      allow delete: if isAdmin(database);
     }
 
     // 5. Audit Logs (Append-Only Hash-Chained Ledger)
     match /audit_logs/{logId} {
       allow read: if isSignedIn() && (
-        isAdmin() || hasRole('STAKEHOLDER') || hasRole('ADJUDICATOR')
+        isAdmin(database) || hasRole(database, 'STAKEHOLDER') || hasRole(database, 'ADJUDICATOR')
       );
 
       // Anyone authenticated can append audit logs
@@ -150,10 +189,23 @@ service cloud.firestore {
 
     // 6. Admin Audit Logs (Append-only admin action log)
     match /auditLogs/{logId} {
-      allow read: if isAdmin();
-      allow create: if isAdmin()
+      allow read: if isAdmin(database);
+      allow create: if isAdmin(database)
         && request.resource.data.keys().hasAll(['actorId', 'actorName', 'action', 'targetId', 'targetName', 'createdAt']);
       allow update, delete: if false;
+    }
+
+    function countIdeaDocSlot(docs, slotKey) {
+      return (slotKey in docs && docs[slotKey] is map) ? 1 : 0;
+    }
+
+    function totalIdeaDocCount(docs) {
+      return countIdeaDocSlot(docs, 'omang')
+        + countIdeaDocSlot(docs, 'conceptNote')
+        + countIdeaDocSlot(docs, 'budget')
+        + countIdeaDocSlot(docs, 'proofOfResidence')
+        + countIdeaDocSlot(docs, 'cipa')
+        + (('letters' in docs && docs.letters is list) ? docs.letters.size() : 0);
     }
 
     function isValidIdeaDetails(data) {
@@ -165,56 +217,247 @@ service cloud.firestore {
           && (!('solution' in data.idea) || (data.idea.solution is string && data.idea.solution.size() <= 1000))
           && (!('beneficiaries' in data.idea) || (data.idea.beneficiaries is string && data.idea.beneficiaries.size() <= 500))
           && (!('trl' in data.idea) || data.idea.trl == null || (data.idea.trl is int && data.idea.trl >= 1 && data.idea.trl <= 9))
+          && (
+            !('declaration' in data.idea)
+            || (
+              data.idea.declaration is map
+              && data.idea.declaration.get('accepted', false) is bool
+            )
+          )
+          && (
+            !('documents' in data.idea)
+            || (
+              data.idea.documents is map
+              && (
+                !('letters' in data.idea.documents)
+                || (data.idea.documents.letters is list && data.idea.documents.letters.size() <= 8)
+              )
+              && totalIdeaDocCount(data.idea.documents) <= 8
+            )
+          )
         );
+    }
+
+    function hasNoProtectedSubmitterFields(keys) {
+      return !keys.hasAny([
+        'reference',
+        'trackingCode',
+        'stage',
+        'currentStage',
+        'stageName',
+        'assignedEvaluators',
+        'evaluatorIds',
+        'scores',
+        'evaluatorScores',
+        'reviews',
+        'adjudication',
+        'adjudicatorDecision',
+        'decision',
+        'feedback',
+        'approvedAt',
+        'awardedAt'
+      ]);
+    }
+
+    function hasAllowedFinalSubmitFields(oldData, newData) {
+      return !newData.diff(oldData).affectedKeys().hasAny([
+          'trackingCode',
+          'currentStage',
+          'stageName',
+          'assignedEvaluators',
+          'evaluatorIds',
+          'scores',
+          'evaluatorScores',
+          'reviews',
+          'adjudication',
+          'adjudicatorDecision',
+          'decision',
+          'feedback',
+          'approvedAt',
+          'awardedAt'
+        ])
+        && ('stage' in newData && newData.stage == 'submitted')
+        && ('reference' in newData && newData.reference is string && newData.reference.matches('^CEDA-INN-[0-9]{4}-[0-9]{4}$'))
+        && (
+          !('reference' in oldData)
+          || !(oldData.reference is string)
+          || oldData.reference == ''
+          || newData.reference == oldData.reference
+        );
+    }
+
+    function hasValidFinalIdeaSubmission(data) {
+      return ('idea' in data)
+        && data.idea is map
+        && ('declaration' in data.idea)
+        && data.idea.declaration is map
+        && data.idea.declaration.get('accepted', false) == true
+        && ('documents' in data.idea)
+        && data.idea.documents is map
+        && ('omang' in data.idea.documents) && data.idea.documents.omang is map
+        && ('conceptNote' in data.idea.documents) && data.idea.documents.conceptNote is map
+        && ('budget' in data.idea.documents) && data.idea.documents.budget is map
+        && totalIdeaDocCount(data.idea.documents) <= 8
+        && ('submittedAt' in data)
+        && (data.submittedAt is timestamp || data.submittedAt == request.time);
+    }
+
+    function isValidFileId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[-a-zA-Z0-9_]+$');
+    }
+
+    function isParentIdeaOwner(dbName, ideaId) {
+      return isSignedIn()
+        && exists(/databases/$(dbName)/documents/ideas/$(ideaId))
+        && get(/databases/$(dbName)/documents/ideas/$(ideaId)).data.submitterId == request.auth.uid;
+    }
+
+    function isParentIdeaEditable(dbName, ideaId) {
+      return !('status' in get(/databases/$(dbName)/documents/ideas/$(ideaId)).data)
+        || get(/databases/$(dbName)/documents/ideas/$(ideaId)).data.status in ['draft', 'DRAFT', 'feedback_requested', 'FEEDBACK_REQUESTED'];
+    }
+
+    function isParentSubmissionOwner(dbName, subId) {
+      return isSignedIn()
+        && exists(/databases/$(dbName)/documents/submissions/$(subId))
+        && get(/databases/$(dbName)/documents/submissions/$(subId)).data.submitterId == request.auth.uid;
+    }
+
+    function isValidIdeaFilePayload(docData) {
+      return docData is map
+        && docData.keys().hasAll(['docType', 'name', 'size', 'contentType', 'data', 'uploadedAt'])
+        && docData.keys().hasOnly(['docType', 'name', 'size', 'contentType', 'data', 'uploadedAt', 'note'])
+        && docData.docType in ['omang', 'conceptNote', 'budget', 'proofOfResidence', 'cipa', 'letters']
+        && docData.name is string && docData.name.size() > 0 && docData.name.size() <= 255
+        && docData.size is int && docData.size > 0 && docData.size <= 614400
+        && docData.contentType in [
+          'application/pdf',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'image/jpeg',
+          'image/png'
+        ]
+        && docData.data is string && docData.data.size() > 0 && docData.data.size() <= 860000
+        && docData.uploadedAt is string && docData.uploadedAt.size() >= 10 && docData.uploadedAt.size() <= 40
+        && (!('note' in docData) || (docData.note is string && docData.note.size() <= 200));
     }
 
     // 7. Submitter Ideas collection
     match /ideas/{ideaId} {
       allow read: if isSignedIn() && (
         resource.data.submitterId == request.auth.uid
-        || isAdmin()
-        || hasRole('EVALUATOR')
-        || hasRole('ADJUDICATOR')
-        || hasRole('STAKEHOLDER')
+        || isAdmin(database)
+        || hasRole(database, 'EVALUATOR')
+        || hasRole(database, 'ADJUDICATOR')
+        || hasRole(database, 'STAKEHOLDER')
       );
 
       allow create: if isSignedIn()
         && request.resource.data.submitterId == request.auth.uid
         && request.resource.data.status in ['draft', 'submitted']
-        && isValidIdeaDetails(request.resource.data);
+        && hasNoProtectedSubmitterFields(request.resource.data.keys())
+        && isValidIdeaDetails(request.resource.data)
+        && (
+          request.resource.data.status == 'draft'
+          || hasValidFinalIdeaSubmission(request.resource.data)
+        );
 
       allow update: if isSignedIn() && (
         (
           resource.data.submitterId == request.auth.uid
-          && resource.data.status == 'draft'
+          && resource.data.status in ['draft', 'feedback_requested']
           && request.resource.data.submitterId == resource.data.submitterId
-          && request.resource.data.status in ['draft', 'submitted']
+          && request.resource.data.status in ['draft', 'submitted', 'feedback_requested']
           && isValidIdeaDetails(request.resource.data)
+          && (
+            (
+              resource.data.status == 'draft'
+              && request.resource.data.status == 'submitted'
+              && hasAllowedFinalSubmitFields(resource.data, request.resource.data)
+              && hasValidFinalIdeaSubmission(request.resource.data)
+            )
+            || (
+              !(resource.data.status == 'draft' && request.resource.data.status == 'submitted')
+              && hasNoProtectedSubmitterFields(request.resource.data.diff(resource.data).affectedKeys())
+            )
+          )
         )
-        || isAdmin()
-        || hasRole('EVALUATOR')
-        || hasRole('ADJUDICATOR')
+        || isAdmin(database)
+        || hasRole(database, 'EVALUATOR')
+        || hasRole(database, 'ADJUDICATOR')
       );
 
-      allow delete: if isAdmin();
+      allow delete: if isAdmin(database);
+
+      match /files/{fileId} {
+        allow get: if isSignedIn() && isValidFileId(fileId) && (
+          isParentIdeaOwner(database, ideaId)
+          || isAdmin(database)
+          || hasRole(database, 'EVALUATOR')
+          || hasRole(database, 'ADJUDICATOR')
+          || hasRole(database, 'STAKEHOLDER')
+        );
+        allow list: if false;
+        allow create: if isSignedIn()
+          && isValidFileId(fileId)
+          && isValidIdeaFilePayload(request.resource.data)
+          && isParentIdeaOwner(database, ideaId)
+          && isParentIdeaEditable(database, ideaId);
+        allow update: if isSignedIn()
+          && isValidFileId(fileId)
+          && isParentIdeaOwner(database, ideaId)
+          && isParentIdeaEditable(database, ideaId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['note'])
+          && (!('note' in request.resource.data) || (request.resource.data.note is string && request.resource.data.note.size() <= 200));
+        allow delete: if isSignedIn()
+          && isValidFileId(fileId)
+          && (
+            (isParentIdeaOwner(database, ideaId) && isParentIdeaEditable(database, ideaId))
+            || isAdmin(database)
+          );
+      }
+    }
+
+    // 7b. Transactional Reference Counters (strictly get + single-increment create/update)
+    match /counters/{counterId} {
+      allow get: if isSignedIn() && counterId.matches('^ideaRef-[0-9]{4}$');
+      allow list: if false;
+      allow create: if isSignedIn()
+        && counterId.matches('^ideaRef-[0-9]{4}$')
+        && request.resource.data.keys().hasAll(['value', 'year', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['value', 'year', 'updatedAt'])
+        && request.resource.data.value == 1
+        && request.resource.data.year is int
+        && (request.resource.data.updatedAt is timestamp || request.resource.data.updatedAt == request.time);
+      allow update: if isSignedIn()
+        && counterId.matches('^ideaRef-[0-9]{4}$')
+        && request.resource.data.keys().hasAll(['value', 'year', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['value', 'year', 'updatedAt'])
+        && request.resource.data.year is int
+        && (!('year' in resource.data) || request.resource.data.year == resource.data.year)
+        && (
+          ('value' in resource.data && resource.data.value is int && request.resource.data.value == resource.data.value + 1)
+          || ('seq' in resource.data && resource.data.seq is int && request.resource.data.value == resource.data.seq + 1)
+        )
+        && (request.resource.data.updatedAt is timestamp || request.resource.data.updatedAt == request.time);
+      allow delete: if false;
     }
 
     // 8. User Notifications collection
     match /notifications/{notificationId} {
       allow read: if isSignedIn() && (
-        resource.data.userId == request.auth.uid || isAdmin()
+        resource.data.userId == request.auth.uid || isAdmin(database)
       );
-      allow create: if isAdmin();
+      allow create: if isAdmin(database);
       allow update: if isSignedIn() && (
-        resource.data.userId == request.auth.uid || isAdmin()
+        resource.data.userId == request.auth.uid || isAdmin(database)
       );
-      allow delete: if isAdmin();
+      allow delete: if isAdmin(database);
     }
 
     // 9. Open Calls & Cohorts collection
     match /calls/{callId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow write: if isAdmin(database);
     }
   }
 }

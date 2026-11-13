@@ -1,12 +1,12 @@
 {
-  "projectId": "gen-lang-client-0549237866",
-  "appId": "1:181415487504:web:d6fe08e6dca065e7938295",
-  "apiKey": "AIzaSyC_nQM2S-SQPB7r5koDV-4xQXADF2H30t0",
-  "authDomain": "gen-lang-client-0549237866.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-ceda-b5be6203-a7ef-4c49-985a-df71d8624740",
-  "storageBucket": "gen-lang-client-0549237866.firebasestorage.app",
-  "messagingSenderId": "181415487504",
+  "projectId": "cedahack",
+  "appId": "1:190644915617:web:c580c5045f633f77984fe0",
+  "apiKey": "AIzaSyDLLqIPktBdlYscv6BfwmKUcSyBXKjoOZ8",
+  "authDomain": "cedahack.firebaseapp.com",
+  "firestoreDatabaseId": "ai-studio-ceda-f1b36e6f-3c27-4319-8c36-efab8eccfc17",
+  "storageBucket": "cedahack.firebasestorage.app",
+  "messagingSenderId": "190644915617",
   "measurementId": "",
-  "oAuthClientId": "181415487504-tshrjpk03jfga8jgbdafbhe0hh2f4nev.apps.googleusercontent.com",
+  "oAuthClientId": "190644915617-f37ie5dnlpbccrl97gphno94hi4u72ag.apps.googleusercontent.com",
   "recaptchaSiteKey": ""
 }

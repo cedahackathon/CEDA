@@ -21,9 +21,6 @@ const firebaseConfig = hasEnvFirebaseConfig
         import.meta.env.VITE_FIREBASE_AUTH_DOMAIN?.trim() ||
         `${envProjectId}.firebaseapp.com`,
       projectId: envProjectId as string,
-      storageBucket:
-        import.meta.env.VITE_FIREBASE_STORAGE_BUCKET?.trim() ||
-        `${envProjectId}.firebasestorage.app`,
       messagingSenderId:
         import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID?.trim() || '',
       appId: import.meta.env.VITE_FIREBASE_APP_ID?.trim() || '',
@@ -33,8 +30,6 @@ const firebaseConfig = hasEnvFirebaseConfig
       authDomain:
         appletConfig.authDomain || 'ceda-innovation-portal.firebaseapp.com',
       projectId: appletConfig.projectId || 'ceda-innovation-portal',
-      storageBucket:
-        appletConfig.storageBucket || 'ceda-innovation-portal.appspot.com',
       messagingSenderId: appletConfig.messagingSenderId || '123456789012',
       appId: appletConfig.appId || '1:123456789012:web:abcdef123456',
     };

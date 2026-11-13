@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { firebaseConfig } from '../config/firebase';
+
 export type AdminRoutePath =
   | '/admin'
   | '/admin/content'
@@ -248,7 +250,7 @@ export const EMPTY_ADMIN_DATA: AdminDashboardData = {
   systemStatus: {
     operational: true,
     label: 'All systems operational',
-    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'cedahack',
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || firebaseConfig.projectId || 'ceda-innovation-portal',
     lastSyncedAt: null,
     error: null,
   },

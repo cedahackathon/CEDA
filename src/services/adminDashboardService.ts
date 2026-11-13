@@ -4,7 +4,7 @@
  */
 
 import { collection, getDocs, limit, orderBy, query } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { db, firebaseConfig } from '../config/firebase';
 import {
   ADMIN_STAGE_DEFINITIONS,
   ActivityLogItem,
@@ -82,7 +82,7 @@ export async function fetchAdminDashboardData(): Promise<AdminDashboardData> {
       systemStatus: {
         operational: false,
         label: 'Database unavailable',
-        projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'cedahack',
+        projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || firebaseConfig.projectId || 'ceda-innovation-portal',
         lastSyncedAt: null,
         error: 'Firestore is not initialized.',
       },
@@ -207,7 +207,7 @@ export async function fetchAdminDashboardData(): Promise<AdminDashboardData> {
     systemStatus: {
       operational: !hasConnectionIssue,
       label: hasConnectionIssue ? 'Limited database access' : 'All systems operational',
-      projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'cedahack',
+      projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || firebaseConfig.projectId || 'ceda-innovation-portal',
       lastSyncedAt: new Date().toLocaleTimeString('en-GB', {
         hour: '2-digit',
         minute: '2-digit',

@@ -15,17 +15,20 @@ export const LoginPage: React.FC = () => {
   const isIdleExpired = urlParams.get('reason') === 'idle_timeout' || sessionExpired;
 
   // Active tab: 'password' | 'otp' | 'biometric'
-  const [authMethod, setAuthMethod] = useState<'password' | 'biometric'>('password');
+  const [authMethod, setAuthMethod] = useState<'password' | 'otp' | 'biometric'>('password');
 
   // Fields
   const [identifier, setIdentifier] = useState('kagiso.molefe@ceda-innovate.co.bw');
   const [password, setPassword] = useState('Ceda#2026Demo');
+  const [otpCode, setOtpCode] = useState('582491');
   const [rememberDevice, setRememberDevice] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
 
   // Status
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setServerError] = useState<string | null>(null);
+  const [otpSentMessage, setOtpSentMessage] = useState<string | null>(null);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setServerError(null);
@@ -36,16 +39,13 @@ export const LoginPage: React.FC = () => {
         method: authMethod,
         identifier,
         password: authMethod === 'password' ? password : undefined,
+        otpCode: authMethod === 'otp' ? otpCode : undefined,
         rememberDevice,
       });
 
       if (res.success && res.user) {
         setSessionExpired(false);
         loginAs(res.user);
-      } else if (res.requiresOtp && res.user) {
-        setCurrentRoute(
-          `/otp-verification?target=${encodeURIComponent(res.user.email)}&channel=email`
-        );
       } else {
         setServerError(res.message);
       }
@@ -53,6 +53,19 @@ export const LoginPage: React.FC = () => {
       setServerError(err instanceof Error ? err.message : 'Sign in failed.');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleSendOtp = async () => {
+    setServerError(null);
+    setOtpSentMessage(null);
+    try {
+      const channel = identifier.includes('@') ? 'email' : 'sms';
+      const res = await authService.resendOtp(identifier, channel);
+      setOtpSentMessage(`Authentication code sent! Use demo code: ${res.demoCode || '582491'}`);
+      setOtpCode(res.demoCode || '582491');
+    } catch (err: unknown) {
+      setServerError(err instanceof Error ? err.message : 'Could not dispatch OTP.');
     }
   };
 
@@ -270,6 +283,22 @@ export const LoginPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => {
+                      setAuthMethod('otp');
+                      setServerError(null);
+                    }}
+                    className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                      authMethod === 'otp'
+                        ? 'bg-white text-[#7c0700] shadow-sm'
+                        : 'text-[#5a413c] hover:text-[#1c1c19]'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-[16px]">sms</span>
+                    <span>One-time code</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
                       setAuthMethod('biometric');
                       setServerError(null);
                     }}
@@ -387,6 +416,80 @@ export const LoginPage: React.FC = () => {
                   </form>
                 )}
 
+                {/* TAB 2: ONE-TIME PASSCODE FORM */}
+                {authMethod === 'otp' && (
+                  <div className="flex flex-col gap-4 animate-in fade-in duration-150">
+                    <div className="p-4 rounded-xl bg-[#f7f3ee] border border-[#e2bfb8]/60 flex items-start gap-3 text-xs">
+                      <span className="material-symbols-outlined text-[#a02010] text-[22px] shrink-0 mt-0.5">
+                        mark_chat_unread
+                      </span>
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-bold text-[#1c1c19]">
+                          Passwordless Mobile Authentication
+                        </span>
+                        <p className="text-[#5a413c]">
+                          Dispatches a single-use numeric code to your verified Botswana SIM (+267) or email.
+                        </p>
+                      </div>
+                    </div>
+
+                    {otpSentMessage && (
+                      <div className="p-3 bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 rounded-lg flex items-center gap-2">
+                        <span className="material-symbols-outlined text-[16px]">check_circle</span>
+                        <span>{otpSentMessage}</span>
+                      </div>
+                    )}
+
+                    <div className="flex flex-col gap-1">
+                      <label htmlFor="login-otp-ident" className="text-xs font-bold text-[#1c1c19]">
+                        Registered Mobile Number or Email <span className="text-[#ba1a1a]">* Required</span>
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          id="login-otp-ident"
+                          type="text"
+                          value={identifier}
+                          onChange={(e) => setIdentifier(e.target.value)}
+                          placeholder="e.g. 71 234 567 or email"
+                          className="flex-1 h-11 px-3.5 bg-[#f7f3ee] focus:bg-white rounded-lg text-xs font-medium text-[#1c1c19] border border-[#e2bfb8]/60 focus:border-[#a02010]"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleSendOtp}
+                          className="px-4 h-11 bg-white hover:bg-[#f1ede8] text-[#a02010] border border-[#a02010] text-xs font-bold rounded-lg transition-colors shrink-0"
+                        >
+                          Send Code
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-1">
+                      <label htmlFor="login-otp-code" className="text-xs font-bold text-[#1c1c19]">
+                        Enter 6-Digit Code <span className="text-[#ba1a1a]">* Required</span>
+                      </label>
+                      <input
+                        id="login-otp-code"
+                        type="text"
+                        value={otpCode}
+                        onChange={(e) => setOtpCode(e.target.value)}
+                        placeholder="e.g. 582491"
+                        maxLength={6}
+                        className="w-full h-11 px-3.5 bg-[#f7f3ee] focus:bg-white rounded-lg text-sm font-mono font-bold tracking-widest text-[#1c1c19] border border-[#e2bfb8]/60 focus:border-[#a02010]"
+                      />
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleSubmit}
+                      disabled={isSubmitting || otpCode.length < 6}
+                      className="w-full h-12 bg-[#a02010] hover:bg-[#861a0d] text-white font-headline text-sm font-bold rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer disabled:bg-[#e6e2dd] disabled:text-[#8d706b]"
+                    >
+                      <span>Verify &amp; Sign In</span>
+                      <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
+                    </button>
+                  </div>
+                )}
+
                 {/* TAB 3: BIOMETRIC AUTH */}
                 {authMethod === 'biometric' && (
                   <div className="flex flex-col items-center text-center p-6 bg-[#f7f3ee] rounded-xl border border-[#e2bfb8]/60 gap-4 animate-in fade-in duration-150">
@@ -430,7 +533,29 @@ export const LoginPage: React.FC = () => {
                     <div className="h-px bg-[#e2bfb8]/60 flex-1"></div>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-3 mt-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-1">
+                    <div className="bg-[#f7f3ee] p-3.5 rounded-xl border border-[#e2bfb8]/60 flex flex-col justify-between gap-2">
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-[#1c1c19]">One-Time Code (OTP)</span>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#ffdbcf] text-[#6d2200]">
+                            Instant SMS
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-[#5a413c] mt-1">
+                          Fast login without a password. Enter your registered Mascom, Orange, or BTC phone.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setAuthMethod('otp')}
+                        className="w-full py-1.5 bg-white hover:bg-[#ebe8e3] rounded-lg text-xs font-bold text-[#77574e] transition-colors border border-[#e2bfb8]/60 flex items-center justify-center gap-1"
+                      >
+                        <span className="material-symbols-outlined text-[14px]">sms</span>
+                        <span>Use One-Time Code</span>
+                      </button>
+                    </div>
+
                     <div className="bg-[#f7f3ee] p-3.5 rounded-xl border border-[#e2bfb8]/60 flex flex-col justify-between gap-2">
                       <div>
                         <div className="flex items-center justify-between">

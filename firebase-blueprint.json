@@ -97,6 +97,48 @@
         "blockHash": { "type": "string", "description": "SHA-256 hash of this record block" }
       },
       "required": ["id", "timestamp", "actorId", "event", "prevHash", "blockHash"]
+    },
+    "ideas": {
+      "title": "Ideas",
+      "description": "Multi-step innovation submission drafts and proposals storing applicant, idea details, supporting document metadata, and Step 4 declaration.",
+      "fields": {
+        "id": { "type": "string", "description": "Unique idea document ID" },
+        "submitterId": { "type": "string", "description": "Owner submitter Firebase Auth UID" },
+        "status": { "type": "string", "enum": ["draft", "submitted", "under_review", "feedback_requested", "approved", "awarded", "declined"], "description": "Current workflow status" },
+        "currentStep": { "type": "number", "minimum": 1, "maximum": 4, "description": "Wizard step progress (1-4)" },
+        "reference": { "type": "string", "description": "Server-assigned CEDA reference (e.g. CEDA-INN-2026-0001)" },
+        "stage": { "type": "string", "description": "Server-assigned intake stage after submission" },
+        "applicant": { "type": "object", "description": "Applicant identity, contact, location, and optional business/team details" },
+        "idea": { "type": "object", "description": "Idea narrative, TRL, impact metrics, uploaded documents metadata, and final declaration" },
+        "submittedAt": { "type": "string", "format": "date-time", "description": "Server timestamp of final submission" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Draft creation timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last modification timestamp" }
+      },
+      "required": ["id", "submitterId", "status", "createdAt", "updatedAt"]
+    },
+    "counters": {
+      "title": "Counters",
+      "description": "Transactional sequential counters (counters/ideaRef-{year}) for CEDA reference generation.",
+      "fields": {
+        "year": { "type": "number", "description": "Calendar year of the counter" },
+        "value": { "type": "number", "description": "Monotonic sequence number starting at 1" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last increment timestamp" }
+      },
+      "required": ["year", "value"]
+    },
+    "idea_files": {
+      "title": "Idea Files",
+      "description": "Supporting document payloads stored under ideas/{ideaId}/files/{fileId} for Spark-plan persistence (max 600 KB each, max 8 per idea).",
+      "fields": {
+        "docType": { "type": "string", "enum": ["omang", "conceptNote", "budget", "proofOfResidence", "cipa", "letters"], "description": "Supporting document slot key" },
+        "name": { "type": "string", "description": "Original filename" },
+        "size": { "type": "number", "description": "Binary byte size (<= 614400 bytes)" },
+        "contentType": { "type": "string", "description": "MIME type (PDF, DOCX, JPG, PNG)" },
+        "data": { "type": "string", "description": "Base64-encoded file payload without data: URI prefix" },
+        "uploadedAt": { "type": "string", "format": "date-time", "description": "Upload ISO timestamp" },
+        "note": { "type": "string", "description": "Optional note for letters of support" }
+      },
+      "required": ["docType", "name", "size", "contentType", "data", "uploadedAt"]
     }
   }
 }

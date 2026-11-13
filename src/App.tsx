@@ -27,6 +27,7 @@ import { GuidelinesPage, FaqsPage, HelpCenterPage } from './components/pages/Inf
 import { SubmitterDashboard } from './components/pages/dashboards/SubmitterDashboard';
 import { MySubmissionsPage } from './components/pages/dashboards/MySubmissionsPage';
 import { SubmitterComingSoonPage } from './components/pages/dashboards/SubmitterComingSoonPage';
+import { SubmitConfirmationPage } from './components/pages/submit/SubmitConfirmationPage';
 import { SubmitIdeaWizard } from './components/pages/submit/SubmitIdeaWizard';
 import { SubmitterLayout } from './components/submitter/SubmitterLayout';
 import { EvaluatorDashboard } from './components/pages/dashboards/EvaluatorDashboard';
@@ -76,7 +77,7 @@ const AppContent: React.FC = () => {
 
   // Sync window.location when currentRoute changes
   useEffect(() => {
-    if (window.location.pathname !== currentRoute.split('?')[0]) {
+    if (window.location.pathname + window.location.search !== currentRoute) {
       window.history.pushState(null, '', currentRoute);
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -90,6 +91,9 @@ const AppContent: React.FC = () => {
   const showAdminShell = Boolean(isAdminRoute && isAuthenticated && currentUser?.role === 'ADMIN');
 
   const isWizardRoute = WIZARD_PATHS.has(cleanPath);
+  const isWizardConfirmationRoute =
+    cleanPath.startsWith('/submit/confirmation/') &&
+    cleanPath.length > '/submit/confirmation/'.length;
   const isSubmitterRoute =
     cleanPath === '/dashboard' ||
     cleanPath === '/dashboard/submitter' ||
@@ -99,7 +103,7 @@ const AppContent: React.FC = () => {
     (cleanPath === '/help-center' && currentUser?.role === 'SUBMITTER');
   const showSubmitterShell = Boolean(
     isAuthenticated &&
-      ((isWizardRoute && currentUser?.role === 'SUBMITTER') ||
+      (((isWizardRoute || isWizardConfirmationRoute) && currentUser?.role === 'SUBMITTER') ||
         (isSubmitterRoute &&
           (currentUser?.role === 'SUBMITTER' || currentUser?.role === 'ADMIN')))
   );
@@ -114,10 +118,18 @@ const AppContent: React.FC = () => {
       );
     }
 
+    if (isWizardConfirmationRoute) {
+      return (
+        <RouteGuard allowedRoles={['SUBMITTER']}>
+          <SubmitConfirmationPage routePath={cleanPath} />
+        </RouteGuard>
+      );
+    }
+
     if (WIZARD_PATHS.has(cleanPath)) {
       return (
         <RouteGuard allowedRoles={['SUBMITTER']}>
-          <SubmitIdeaWizard routePath={cleanPath} />
+          <SubmitIdeaWizard routePath={currentRoute} />
         </RouteGuard>
       );
     }

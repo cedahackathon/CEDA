@@ -6,11 +6,13 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { authService } from '../../services/authService';
+import { VerificationChannel } from '../../types/auth';
 
 export const ForgotPasswordPage: React.FC = () => {
   const { setCurrentRoute, language } = useAuth();
 
   const [identifier, setIdentifier] = useState('kagiso.mogae@innovate.co.bw');
+  const [deliveryChannel, setDeliveryChannel] = useState<VerificationChannel>('email');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSent, setIsSent] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -36,7 +38,7 @@ export const ForgotPasswordPage: React.FC = () => {
     try {
       const res = await authService.requestReset({
         identifier,
-        channel: 'email',
+        channel: deliveryChannel,
       });
 
       setIsSent(true);
@@ -112,7 +114,7 @@ export const ForgotPasswordPage: React.FC = () => {
               {language === 'Setswana' ? 'A o Lebetse Khoutu ya Gago?' : 'Forgot your password?'}
             </h1>
             <p className="text-xs sm:text-sm text-[#5a413c] max-w-md mt-1">
-              Enter your registered email address and we'll send you a password reset link.
+              Enter your registered email or phone number and we'll send you a reset code or link.
             </p>
           </div>
 
@@ -132,7 +134,7 @@ export const ForgotPasswordPage: React.FC = () => {
               <div className="flex flex-col gap-1">
                 <div className="flex items-center justify-between">
                   <label htmlFor="recovery-ident" className="text-xs font-bold text-[#1c1c19]">
-                    Registered email address{' '}
+                    Registered Email address or Botswana Mobile number{' '}
                     <span className="text-[#ba1a1a]">* Required</span>
                   </label>
                   <span className="text-[11px] text-[#77574e]">Required</span>
@@ -143,23 +145,76 @@ export const ForgotPasswordPage: React.FC = () => {
                   </span>
                   <input
                     id="recovery-ident"
-                    type="email"
+                    type="text"
                     value={identifier}
                     onChange={(e) => setIdentifier(e.target.value)}
-                    placeholder="e.g. kagiso.mogae@innovate.co.bw"
+                    placeholder="e.g. kagiso.mogae@innovate.co.bw or 72 450 891"
                     required
                     className="w-full h-12 pl-11 pr-4 rounded-xl bg-[#f7f3ee] focus:bg-white text-xs font-medium text-[#1c1c19] border border-[#e2bfb8]/60 focus:border-[#a02010]"
                   />
                 </div>
+                <div className="flex items-center justify-between text-[#77574e] text-[11px] pt-0.5">
+                  <span className="flex items-center gap-1">
+                    <span className="material-symbols-outlined text-[14px] text-[#943100]">sim_card</span>
+                    <span>+267 Mascom, Orange, BTC supported</span>
+                  </span>
+                  <span>TIN / Omang linked</span>
+                </div>
               </div>
 
-              <div className="flex items-start gap-3 p-3.5 rounded-xl border-2 border-[#a02010] bg-[#ffd3c8]/25 shadow-xs">
-                <span className="material-symbols-outlined text-[#a02010]">mail</span>
-                <div className="flex flex-col">
-                  <span className="text-xs font-bold text-[#1c1c19]">Email reset link</span>
-                  <p className="text-[11px] text-[#5a413c] mt-0.5 leading-snug">
-                    Receive a secure 1-hour password reset link in your inbox.
-                  </p>
+              {/* Delivery Method Radio Cards */}
+              <div className="flex flex-col gap-1.5 pt-1">
+                <span className="text-xs font-bold text-[#1c1c19]">Select delivery method</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" role="radiogroup">
+                  <label
+                    className={`relative flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
+                      deliveryChannel === 'email'
+                        ? 'border-2 border-[#a02010] bg-[#ffd3c8]/25 shadow-xs'
+                        : 'border-[#e2bfb8] bg-[#f7f3ee] hover:bg-white'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="delivery"
+                      checked={deliveryChannel === 'email'}
+                      onChange={() => setDeliveryChannel('email')}
+                      className="mt-0.5 accent-[#a02010] w-4 h-4 cursor-pointer"
+                    />
+                    <div className="flex flex-col">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-[#1c1c19]">
+                        <span className="material-symbols-outlined text-[16px] text-[#a02010]">mail</span>
+                        <span>Email reset link</span>
+                      </div>
+                      <p className="text-[11px] text-[#5a413c] mt-0.5 leading-snug">
+                        Receive a secure 1-hour reset link to your inbox.
+                      </p>
+                    </div>
+                  </label>
+
+                  <label
+                    className={`relative flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
+                      deliveryChannel === 'sms'
+                        ? 'border-2 border-[#a02010] bg-[#ffd3c8]/25 shadow-xs'
+                        : 'border-[#e2bfb8] bg-[#f7f3ee] hover:bg-white'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="delivery"
+                      checked={deliveryChannel === 'sms'}
+                      onChange={() => setDeliveryChannel('sms')}
+                      className="mt-0.5 accent-[#a02010] w-4 h-4 cursor-pointer"
+                    />
+                    <div className="flex flex-col">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-[#1c1c19]">
+                        <span className="material-symbols-outlined text-[16px] text-[#943100]">sms</span>
+                        <span>SMS verification code</span>
+                      </div>
+                      <p className="text-[11px] text-[#5a413c] mt-0.5 leading-snug">
+                        Receive a 6-digit OTP to your +267 mobile number.
+                      </p>
+                    </div>
+                  </label>
                 </div>
               </div>
 
@@ -198,7 +253,8 @@ export const ForgotPasswordPage: React.FC = () => {
               <div className="p-3 bg-[#f7f3ee] rounded-xl flex items-center gap-2.5 text-xs text-[#5a413c] border border-[#e2bfb8]/50">
                 <span className="material-symbols-outlined text-[18px] text-[#943100] shrink-0">info</span>
                 <span>
-                  For your security, password reset links expire after <strong>60 minutes</strong>.
+                  For your security, password reset links expire after <strong>60 minutes</strong> and
+                  single-use SMS codes expire after <strong>10 minutes</strong>.
                 </span>
               </div>
             </form>
@@ -217,7 +273,7 @@ export const ForgotPasswordPage: React.FC = () => {
 
                 <div className="flex flex-col">
                   <h2 className="font-headline text-base font-bold text-[#1c1c19]">
-                    Check your inbox
+                    Check your inbox or mobile device
                   </h2>
                   {/* Strict anti-enumeration wording */}
                   <p className="text-xs text-[#5a413c] mt-1 leading-relaxed">
@@ -253,7 +309,7 @@ export const ForgotPasswordPage: React.FC = () => {
                   <span>Prototype Dispatch Simulator:</span>
                 </span>
                 <p className="text-[11px] text-amber-800">
-                  In a live deployment, the user clicks the secure password reset link delivered by email.
+                  In a live deployment, the user clicks the secure link delivered via email or inputs the SMS code.
                   Click below to open the Reset Password screen with this token:
                 </p>
                 <div className="flex flex-wrap gap-2 pt-1">

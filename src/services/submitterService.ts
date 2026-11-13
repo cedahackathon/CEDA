@@ -3,9 +3,32 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  query,
+  runTransaction,
+  serverTimestamp,
+  setDoc,
+  Unsubscribe,
+  updateDoc,
+  where,
+} from 'firebase/firestore';
 import { auth, db, firebaseConfig } from '../config/firebase';
 import { normalizeDistrictCouncilName } from '../config/districts';
+import {
+  DOCUMENT_ACCEPTED_EXTENSIONS,
+  DOCUMENT_ACCEPTED_MIME_TYPES,
+  DOCUMENT_MAX_FILES_PER_IDEA,
+  DOCUMENT_MAX_FILE_SIZE_BYTES,
+  DOCUMENT_MAX_FILE_SIZE_KB,
+  DocumentSlotKey,
+  MAX_SUPPORT_LETTERS,
+} from '../data/documentOptions';
 import { DEFAULT_OPEN_CALL, OpenCallData } from '../data/submitterMock';
 import { UserProfile } from '../types/auth';
 
@@ -681,6 +704,40 @@ export type InnovationType =
   | 'incremental_upgrade'
   | 'import_substitution';
 
+export interface IdeaDocumentFile {
+  fileId: string;
+  name: string;
+  size: number;
+  contentType: string;
+  uploadedAt: string;
+  note?: string;
+}
+
+export interface WizardIdeaDocuments {
+  omang: IdeaDocumentFile | null;
+  conceptNote: IdeaDocumentFile | null;
+  budget: IdeaDocumentFile | null;
+  proofOfResidence: IdeaDocumentFile | null;
+  cipa: IdeaDocumentFile | null;
+  letters: IdeaDocumentFile[];
+}
+
+export function createEmptyIdeaDocuments(): WizardIdeaDocuments {
+  return {
+    omang: null,
+    conceptNote: null,
+    budget: null,
+    proofOfResidence: null,
+    cipa: null,
+    letters: [],
+  };
+}
+
+export interface WizardIdeaDeclaration {
+  accepted: boolean;
+  acceptedAt: string | null;
+}
+
 export interface WizardIdeaDetails {
   title: string;
   sector: string;
@@ -694,6 +751,8 @@ export interface WizardIdeaDetails {
   jobsEstimate: number | null;
   impactMetric: string;
   demographics: string[];
+  documents?: WizardIdeaDocuments;
+  declaration?: WizardIdeaDeclaration;
 }
 
 export function createEmptyIdeaDetails(): WizardIdeaDetails {
@@ -710,16 +769,24 @@ export function createEmptyIdeaDetails(): WizardIdeaDetails {
     jobsEstimate: null,
     impactMetric: '',
     demographics: [],
+    documents: createEmptyIdeaDocuments(),
+    declaration: {
+      accepted: false,
+      acceptedAt: null,
+    },
   };
 }
 
 export interface IdeaDraft {
   id: string;
   submitterId: string;
-  status: 'draft' | 'submitted';
+  status: IdeaStatus;
   currentStep: number;
   applicant: WizardApplicantDetails;
   idea?: WizardIdeaDetails;
+  reference?: string;
+  stage?: string;
+  submittedAt?: string | null;
   createdAt: string;
   updatedAt: string;
   storageTarget?: DraftStorageTarget;
@@ -917,6 +984,69 @@ function clearLocalDraftsForUser(uid: string): void {
   }
 }
 
+function normalizeSingleDocumentFile(raw: unknown): IdeaDocumentFile | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  const fileId = typeof obj.fileId === 'string' ? obj.fileId.trim() : '';
+  const name = typeof obj.name === 'string' ? obj.name.trim() : '';
+  if (!fileId || !name) return null;
+
+  const parsedSize = Number(obj.size);
+  const size = !Number.isNaN(parsedSize) && parsedSize >= 0 ? Math.round(parsedSize) : 0;
+  const contentType =
+    typeof obj.contentType === 'string' && obj.contentType.trim()
+      ? obj.contentType.trim()
+      : 'application/octet-stream';
+  const uploadedAt =
+    normalizeTimestamp(obj.uploadedAt) || new Date().toISOString();
+  const note =
+    typeof obj.note === 'string' && obj.note.trim() ? obj.note.trim().slice(0, 200) : undefined;
+
+  return {
+    fileId,
+    name,
+    size,
+    contentType,
+    uploadedAt,
+    ...(note ? { note } : {}),
+  };
+}
+
+export function normalizeIdeaDocuments(rawDocs: unknown): WizardIdeaDocuments {
+  const empty = createEmptyIdeaDocuments();
+  if (!rawDocs || typeof rawDocs !== 'object') return empty;
+  const raw = rawDocs as Record<string, unknown>;
+
+  const letters = Array.isArray(raw.letters)
+    ? raw.letters
+        .map((item) => normalizeSingleDocumentFile(item))
+        .filter((item): item is IdeaDocumentFile => Boolean(item))
+        .slice(0, MAX_SUPPORT_LETTERS)
+    : [];
+
+  return {
+    omang: normalizeSingleDocumentFile(raw.omang),
+    conceptNote: normalizeSingleDocumentFile(raw.conceptNote),
+    budget: normalizeSingleDocumentFile(raw.budget),
+    proofOfResidence: normalizeSingleDocumentFile(raw.proofOfResidence),
+    cipa: normalizeSingleDocumentFile(raw.cipa),
+    letters,
+  };
+}
+
+export function normalizeIdeaDeclaration(rawDecl: unknown): WizardIdeaDeclaration {
+  if (!rawDecl || typeof rawDecl !== 'object') {
+    return { accepted: false, acceptedAt: null };
+  }
+  const obj = rawDecl as Record<string, unknown>;
+  const accepted = Boolean(obj.accepted);
+  const acceptedAt = normalizeTimestamp(obj.acceptedAt) || null;
+  return {
+    accepted,
+    acceptedAt: accepted ? acceptedAt : null,
+  };
+}
+
 export function normalizeDraftIdea(rawIdea?: Record<string, unknown>): WizardIdeaDetails {
   const empty = createEmptyIdeaDetails();
   if (!rawIdea || typeof rawIdea !== 'object') return empty;
@@ -964,6 +1094,8 @@ export function normalizeDraftIdea(rawIdea?: Record<string, unknown>): WizardIde
     jobsEstimate,
     impactMetric: typeof rawIdea.impactMetric === 'string' ? rawIdea.impactMetric : '',
     demographics,
+    documents: normalizeIdeaDocuments(rawIdea.documents),
+    declaration: normalizeIdeaDeclaration(rawIdea.declaration),
   };
 }
 
@@ -1097,12 +1229,44 @@ function buildFirestoreSubmissionDraftPayload(
   return payload;
 }
 
+function mapRawDocToIdeaDraft(
+  docId: string,
+  raw: Record<string, unknown>,
+  uid: string,
+  prefill: WizardApplicantDetails,
+  storageTarget: DraftStorageTarget
+): IdeaDraft {
+  const nowIso = new Date().toISOString();
+  const status = normalizeIdeaStatus(raw.status || 'draft');
+  const reference =
+    (typeof raw.reference === 'string' && raw.reference.trim()) ||
+    (typeof raw.trackingCode === 'string' && raw.trackingCode.trim()) ||
+    '';
+
+  return {
+    id: docId,
+    submitterId: String(raw.submitterId || uid),
+    status,
+    currentStep: Math.max(1, Math.min(4, Number(raw.currentStep) || 1)),
+    applicant: normalizeDraftApplicant(
+      raw.applicant as Record<string, unknown> | undefined,
+      prefill
+    ),
+    idea: normalizeDraftIdea(raw.idea as Record<string, unknown> | undefined),
+    reference: reference || undefined,
+    stage: typeof raw.stage === 'string' ? raw.stage : undefined,
+    submittedAt: normalizeTimestamp(raw.submittedAt) || null,
+    createdAt: normalizeTimestamp(raw.createdAt) || nowIso,
+    updatedAt: normalizeTimestamp(raw.updatedAt) || nowIso,
+    storageTarget,
+  };
+}
+
 export async function findExistingIdeaDraft(
   uid: string,
   profile: UserProfile | null
 ): Promise<IdeaDraft | null> {
   const prefill = buildApplicantPrefillFromProfile(profile);
-  const nowIso = new Date().toISOString();
 
   const firestoreReady = await ensureFirestoreReadyForUser(uid);
   if (!firestoreReady) {
@@ -1119,20 +1283,7 @@ export async function findExistingIdeaDraft(
     snap.forEach((docSnap) => {
       const raw = docSnap.data() as Record<string, unknown>;
       if (String(raw.status || '').toLowerCase() === 'draft') {
-        drafts.push({
-          id: docSnap.id,
-          submitterId: uid,
-          status: 'draft',
-          currentStep: Math.max(1, Math.min(4, Number(raw.currentStep) || 1)),
-          applicant: normalizeDraftApplicant(
-            raw.applicant as Record<string, unknown> | undefined,
-            prefill
-          ),
-          idea: normalizeDraftIdea(raw.idea as Record<string, unknown> | undefined),
-          createdAt: normalizeTimestamp(raw.createdAt) || nowIso,
-          updatedAt: normalizeTimestamp(raw.updatedAt) || nowIso,
-          storageTarget: 'ideas',
-        });
+        drafts.push(mapRawDocToIdeaDraft(docSnap.id, raw, uid, prefill, 'ideas'));
       }
     });
 
@@ -1159,20 +1310,7 @@ export async function findExistingIdeaDraft(
     subSnap.forEach((docSnap) => {
       const raw = docSnap.data() as Record<string, unknown>;
       if (String(raw.status || '').toLowerCase() === 'draft') {
-        subDrafts.push({
-          id: docSnap.id,
-          submitterId: uid,
-          status: 'draft',
-          currentStep: Math.max(1, Math.min(4, Number(raw.currentStep) || 1)),
-          applicant: normalizeDraftApplicant(
-            raw.applicant as Record<string, unknown> | undefined,
-            prefill
-          ),
-          idea: normalizeDraftIdea(raw.idea as Record<string, unknown> | undefined),
-          createdAt: normalizeTimestamp(raw.createdAt) || nowIso,
-          updatedAt: normalizeTimestamp(raw.updatedAt) || nowIso,
-          storageTarget: 'submissions',
-        });
+        subDrafts.push(mapRawDocToIdeaDraft(docSnap.id, raw, uid, prefill, 'submissions'));
       }
     });
 
@@ -1196,6 +1334,71 @@ export async function findExistingIdeaDraft(
   }
 
   return null;
+}
+
+export async function findIdeaDraftOrById(
+  uid: string,
+  profile: UserProfile | null,
+  ideaIdHint?: string | null
+): Promise<IdeaDraft | null> {
+  const prefill = buildApplicantPrefillFromProfile(profile);
+  const cleanHint = ideaIdHint?.trim();
+
+  if (cleanHint) {
+    const firestoreReady = await ensureFirestoreReadyForUser(uid);
+    if (!firestoreReady) {
+      throw new Error(getFirestoreAuthFailureReason(uid));
+    }
+    try {
+      const snap = await getDoc(doc(db, 'ideas', cleanHint));
+      if (snap.exists()) {
+        const raw = snap.data() as Record<string, unknown>;
+        if (String(raw.submitterId || '') === uid) {
+          return mapRawDocToIdeaDraft(snap.id, raw, uid, prefill, 'ideas');
+        }
+      }
+    } catch (err) {
+      if (isPermissionDeniedError(err)) {
+        logFirestorePermissionError(err, 'get', `ideas/${cleanHint}`);
+      } else {
+        throw err instanceof Error ? err : new Error('Unable to load your idea.');
+      }
+    }
+  }
+
+  return findExistingIdeaDraft(uid, profile);
+}
+
+export function subscribeToIdeaDraft(
+  draftId: string,
+  storageTarget: DraftStorageTarget | undefined,
+  uid: string,
+  profile: UserProfile | null,
+  onUpdate: (nextDraft: IdeaDraft) => void,
+  onError?: (error: Error) => void
+): Unsubscribe {
+  if (!db || !draftId || firebaseConfig.apiKey.includes('MockKey')) {
+    return () => {};
+  }
+
+  const targetCollection = storageTarget === 'submissions' ? 'submissions' : 'ideas';
+  const prefill = buildApplicantPrefillFromProfile(profile);
+
+  return onSnapshot(
+    doc(db, targetCollection, draftId),
+    (snap) => {
+      if (!snap.exists()) return;
+      const raw = snap.data() as Record<string, unknown>;
+      if (raw.submitterId && String(raw.submitterId) !== uid) return;
+      onUpdate(mapRawDocToIdeaDraft(snap.id, raw, uid, prefill, targetCollection));
+    },
+    (err) => {
+      if (isPermissionDeniedError(err)) {
+        logFirestorePermissionError(err, 'get', `${targetCollection}/${draftId}`);
+      }
+      onError?.(err instanceof Error ? err : new Error('Unable to sync your draft in real time.'));
+    }
+  );
 }
 
 export async function findOrCreateIdeaDraft(
@@ -1432,6 +1635,13 @@ export async function saveIdeaStep2(
       ? ideaInput.jobsEstimate
       : null;
 
+  const existingDocuments = normalizeIdeaDocuments(
+    ideaInput.documents || draft.idea?.documents
+  );
+  const existingDeclaration = normalizeIdeaDeclaration(
+    ideaInput.declaration || draft.idea?.declaration
+  );
+
   const sanitizedIdea: WizardIdeaDetails = {
     title: ideaInput.title.slice(0, 120),
     sector: ideaInput.sector.trim(),
@@ -1445,6 +1655,8 @@ export async function saveIdeaStep2(
     jobsEstimate: cleanJobs,
     impactMetric: ideaInput.impactMetric.trim(),
     demographics: Array.from(new Set(ideaInput.demographics.filter(Boolean))),
+    documents: existingDocuments,
+    declaration: existingDeclaration,
   };
 
   const resolvedStep = Math.max(1, Math.min(4, nextStep));
@@ -1499,4 +1711,916 @@ export async function saveIdeaStep2(
   clearLocalDraftsForUser(draft.submitterId);
   return updatedDraft;
 }
+
+/* ============================================================================
+ * SUBMISSION WIZARD — STEP 3 (DOCUMENTS UPLOAD & METADATA PERSISTENCE)
+ * ============================================================================ */
+
+export function formatDocumentFileSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 KB';
+  if (bytes < 1024 * 1024) {
+    const kb = Math.max(1, Math.round(bytes / 1024));
+    return `${kb} KB`;
+  }
+  const mb = bytes / (1024 * 1024);
+  return `${mb.toFixed(1)} MB`;
+}
+
+export function sanitiseDocumentFilename(rawName: string): string {
+  const baseName = (rawName || 'document')
+    .split(/[/\\]/)
+    .pop()
+    ?.trim() || 'document';
+  const lastDot = baseName.lastIndexOf('.');
+  const stem = lastDot > 0 ? baseName.slice(0, lastDot) : baseName;
+  const ext = lastDot > 0 ? baseName.slice(lastDot).toLowerCase() : '';
+
+  const safeStem =
+    stem
+      .replace(/[^a-zA-Z0-9._-]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^[-.]+|[-.]+$/g, '')
+      .slice(0, 80) || 'document';
+  const safeExt = /^\.[a-z0-9]{1,8}$/.test(ext) ? ext : '';
+
+  return `${safeStem}${safeExt}`;
+}
+
+export function resolveDocumentContentType(file: File): string {
+  const mime = (file.type || '').trim().toLowerCase();
+  if (
+    (DOCUMENT_ACCEPTED_MIME_TYPES as readonly string[]).includes(mime)
+  ) {
+    return mime;
+  }
+  const lowerName = file.name.toLowerCase();
+  if (lowerName.endsWith('.pdf')) return 'application/pdf';
+  if (lowerName.endsWith('.docx')) {
+    return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  }
+  if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) return 'image/jpeg';
+  if (lowerName.endsWith('.png')) return 'image/png';
+  return '';
+}
+
+export function countAttachedIdeaFiles(
+  docs: WizardIdeaDocuments | null | undefined
+): number {
+  if (!docs) return 0;
+  let total = 0;
+  if (docs.omang) total += 1;
+  if (docs.conceptNote) total += 1;
+  if (docs.budget) total += 1;
+  if (docs.proofOfResidence) total += 1;
+  if (docs.cipa) total += 1;
+  if (Array.isArray(docs.letters)) total += docs.letters.length;
+  return total;
+}
+
+export function validateDocumentFileForSlot(
+  file: File,
+  currentDocuments: WizardIdeaDocuments,
+  slotKey: DocumentSlotKey,
+  isReplacing = false
+): string | null {
+  const contentType = resolveDocumentContentType(file);
+  const lowerName = file.name.trim().toLowerCase();
+  const hasAllowedExt = DOCUMENT_ACCEPTED_EXTENSIONS.some((ext) =>
+    lowerName.endsWith(ext)
+  );
+
+  if (!contentType || !hasAllowedExt) {
+    return 'Only PDF, DOCX, JPG or PNG files are accepted.';
+  }
+
+  if (file.size <= 0) {
+    return 'Selected file is empty.';
+  }
+
+  const existingInSlot: IdeaDocumentFile[] =
+    slotKey === 'letters'
+      ? currentDocuments.letters
+      : currentDocuments[slotKey] && !isReplacing
+      ? [currentDocuments[slotKey] as IdeaDocumentFile]
+      : [];
+
+  const isDuplicate = existingInSlot.some(
+    (item) =>
+      item.name.trim().toLowerCase() === lowerName && item.size === file.size
+  );
+  if (isDuplicate) {
+    return slotKey === 'letters'
+      ? 'This file is already attached in Letters of support / MOUs.'
+      : 'This file is already attached to this slot.';
+  }
+
+  if (!isReplacing) {
+    const totalAttached = countAttachedIdeaFiles(currentDocuments);
+    if (totalAttached >= DOCUMENT_MAX_FILES_PER_IDEA) {
+      return `Maximum of ${DOCUMENT_MAX_FILES_PER_IDEA} files per application reached.`;
+    }
+  }
+
+  const isImage = contentType === 'image/jpeg' || contentType === 'image/png';
+  if (!isImage && file.size > DOCUMENT_MAX_FILE_SIZE_BYTES) {
+    return `File is too large. Maximum is ${DOCUMENT_MAX_FILE_SIZE_KB} KB. Try compressing the document or exporting a smaller version.`;
+  }
+
+  return null;
+}
+
+function generateDocumentFileId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+  }
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function readBlobAsDataUrl(blob: Blob): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+      } else {
+        reject(new Error('Could not read file.'));
+      }
+    };
+    reader.onerror = () => {
+      reject(new Error('Could not read file.'));
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+
+function extractBase64FromDataUrl(dataUrl: string): string {
+  const commaIdx = dataUrl.indexOf(',');
+  return commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl;
+}
+
+function loadImageFromDataUrl(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Could not process image file.'));
+    img.src = dataUrl;
+  });
+}
+
+function canvasToBlob(
+  canvas: HTMLCanvasElement,
+  mimeType: string,
+  quality?: number
+): Promise<Blob | null> {
+  return new Promise<Blob | null>((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), mimeType, quality);
+  });
+}
+
+async function compressImageWithCanvas(
+  file: File,
+  initialContentType: 'image/jpeg' | 'image/png'
+): Promise<{ blob: Blob; contentType: string; fileName: string }> {
+  const dataUrl = await readBlobAsDataUrl(file);
+  const img = await loadImageFromDataUrl(dataUrl);
+
+  const longestSide = Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height);
+  const scale = longestSide > 1600 ? 1600 / longestSide : 1;
+  const targetWidth = Math.max(1, Math.round((img.naturalWidth || img.width) * scale));
+  const targetHeight = Math.max(1, Math.round((img.naturalHeight || img.height) * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    throw new Error(`File is too large. Maximum is ${DOCUMENT_MAX_FILE_SIZE_KB} KB.`);
+  }
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, targetWidth, targetHeight);
+  ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+
+  if (initialContentType === 'image/png') {
+    const pngBlob = await canvasToBlob(canvas, 'image/png');
+    if (pngBlob && pngBlob.size <= DOCUMENT_MAX_FILE_SIZE_BYTES) {
+      return {
+        blob: pngBlob,
+        contentType: 'image/png',
+        fileName: file.name.trim(),
+      };
+    }
+  }
+
+  const qualities = [0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2];
+  for (const quality of qualities) {
+    const jpegBlob = await canvasToBlob(canvas, 'image/jpeg', quality);
+    if (jpegBlob && jpegBlob.size <= DOCUMENT_MAX_FILE_SIZE_BYTES) {
+      const trimmedName = file.name.trim();
+      const updatedName = trimmedName.toLowerCase().endsWith('.png')
+        ? trimmedName.replace(/\.png$/i, '.jpg')
+        : trimmedName;
+      return {
+        blob: jpegBlob,
+        contentType: 'image/jpeg',
+        fileName: updatedName,
+      };
+    }
+  }
+
+  throw new Error(`File is too large. Maximum is ${DOCUMENT_MAX_FILE_SIZE_KB} KB.`);
+}
+
+async function prepareDocumentPayload(
+  file: File,
+  initialContentType: string
+): Promise<{ base64: string; size: number; contentType: string; name: string }> {
+  const isImage =
+    initialContentType === 'image/jpeg' || initialContentType === 'image/png';
+
+  let workingBlob: Blob = file;
+  let finalContentType = initialContentType;
+  let finalName = sanitiseDocumentFilename(file.name) || file.name.trim() || 'document';
+  if (file.name.trim()) {
+    finalName = file.name.trim();
+  }
+
+  if (file.size > DOCUMENT_MAX_FILE_SIZE_BYTES) {
+    if (!isImage) {
+      throw new Error(
+        `File is too large. Maximum is ${DOCUMENT_MAX_FILE_SIZE_KB} KB. Please compress or export a smaller version.`
+      );
+    }
+    const compressed = await compressImageWithCanvas(
+      file,
+      initialContentType as 'image/jpeg' | 'image/png'
+    );
+    workingBlob = compressed.blob;
+    finalContentType = compressed.contentType;
+    finalName = compressed.fileName;
+  }
+
+  if (workingBlob.size > DOCUMENT_MAX_FILE_SIZE_BYTES) {
+    throw new Error(`File is too large. Maximum is ${DOCUMENT_MAX_FILE_SIZE_KB} KB.`);
+  }
+
+  const dataUrl = await readBlobAsDataUrl(workingBlob);
+  const base64 = extractBase64FromDataUrl(dataUrl);
+  if (!base64) {
+    throw new Error('Could not read file.');
+  }
+
+  return {
+    base64,
+    size: workingBlob.size,
+    contentType: finalContentType,
+    name: finalName,
+  };
+}
+
+function base64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
+  const cleanBase64 = base64.includes(',') ? extractBase64FromDataUrl(base64) : base64;
+  const binary = atob(cleanBase64);
+  const buffer = new ArrayBuffer(binary.length);
+  const bytes = new Uint8Array(buffer);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+export interface SaveIdeaDocumentParams {
+  draft: IdeaDraft;
+  documents: WizardIdeaDocuments;
+  docType: DocumentSlotKey;
+  file: File;
+  replacingFileId?: string;
+  note?: string;
+}
+
+export interface SaveIdeaDocumentResult {
+  uploadedFile: IdeaDocumentFile;
+  nextDocuments: WizardIdeaDocuments;
+  updatedDraft: IdeaDraft;
+}
+
+export async function saveIdeaDocumentToFirestore({
+  draft,
+  documents,
+  docType,
+  file,
+  replacingFileId,
+  note,
+}: SaveIdeaDocumentParams): Promise<SaveIdeaDocumentResult> {
+  const firestoreReady = await ensureFirestoreReadyForUser(draft.submitterId);
+  if (!firestoreReady) {
+    throw new Error(getFirestoreAuthFailureReason(draft.submitterId));
+  }
+
+  const isReplacing = Boolean(replacingFileId && docType !== 'letters');
+  const validationError = validateDocumentFileForSlot(
+    file,
+    documents,
+    docType,
+    isReplacing
+  );
+  if (validationError) {
+    throw new Error(validationError);
+  }
+
+  const initialContentType = resolveDocumentContentType(file);
+  if (!initialContentType) {
+    throw new Error('Only PDF, DOCX, JPG or PNG files are accepted.');
+  }
+
+  const prepared = await prepareDocumentPayload(file, initialContentType);
+
+  const fileId = generateDocumentFileId();
+  const uploadedAt = new Date().toISOString();
+  const cleanNote = note?.trim().slice(0, 200);
+  const targetCollection = draft.storageTarget === 'submissions' ? 'submissions' : 'ideas';
+  const newFileRef = doc(db, targetCollection, draft.id, 'files', fileId);
+  const ideaRef = doc(db, targetCollection, draft.id);
+
+  // 1. Write the new file document first
+  try {
+    await setDoc(newFileRef, {
+      docType,
+      name: prepared.name,
+      size: prepared.size,
+      contentType: prepared.contentType,
+      data: prepared.base64,
+      uploadedAt,
+      ...(cleanNote ? { note: cleanNote } : {}),
+    });
+  } catch (err) {
+    if (isPermissionDeniedError(err)) {
+      logFirestorePermissionError(
+        err,
+        'create',
+        `${targetCollection}/${draft.id}/files/${fileId}`
+      );
+    }
+    throw new Error('Could not save. Retry');
+  }
+
+  const newMeta: IdeaDocumentFile = {
+    fileId,
+    name: prepared.name,
+    size: prepared.size,
+    contentType: prepared.contentType,
+    uploadedAt,
+    ...(cleanNote ? { note: cleanNote } : {}),
+  };
+
+  const previousDocuments = sanitizeIdeaDocumentsForFirestore(documents);
+  const nextDocuments: WizardIdeaDocuments = sanitizeIdeaDocumentsForFirestore(
+    docType === 'letters'
+      ? {
+          ...previousDocuments,
+          letters: [...previousDocuments.letters, newMeta],
+        }
+      : {
+          ...previousDocuments,
+          [docType]: newMeta,
+        }
+  );
+
+  // 2. Persist metadata in idea.documents (never storing base64 on the idea doc)
+  try {
+    await updateDoc(ideaRef, {
+      'idea.documents': nextDocuments,
+      updatedAt: uploadedAt,
+    });
+  } catch (err) {
+    // Roll back the newly written file document if metadata write fails
+    await deleteDoc(newFileRef).catch(() => {
+      // Best-effort rollback
+    });
+    if (isPermissionDeniedError(err)) {
+      logFirestorePermissionError(err, 'update', `${targetCollection}/${draft.id}`);
+    }
+    throw new Error('Could not save. Retry');
+  }
+
+  // 3. If replacing an existing file, delete the old file document after new file & metadata succeed
+  if (replacingFileId && replacingFileId !== fileId) {
+    try {
+      await deleteDoc(doc(db, targetCollection, draft.id, 'files', replacingFileId));
+    } catch (err) {
+      // Roll back metadata and new file doc if old file cleanup fails
+      await updateDoc(ideaRef, {
+        'idea.documents': previousDocuments,
+        updatedAt: new Date().toISOString(),
+      }).catch(() => {
+        // Best-effort rollback
+      });
+      await deleteDoc(newFileRef).catch(() => {
+        // Best-effort rollback
+      });
+      if (isPermissionDeniedError(err)) {
+        logFirestorePermissionError(
+          err,
+          'delete',
+          `${targetCollection}/${draft.id}/files/${replacingFileId}`
+        );
+      }
+      throw new Error('Could not save. Retry');
+    }
+  }
+
+  clearLocalDraftsForUser(draft.submitterId);
+  const currentIdea = draft.idea ?? createEmptyIdeaDetails();
+  const updatedDraft: IdeaDraft = {
+    ...draft,
+    idea: {
+      ...currentIdea,
+      documents: nextDocuments,
+    },
+    updatedAt: uploadedAt,
+  };
+
+  return {
+    uploadedFile: newMeta,
+    nextDocuments,
+    updatedDraft,
+  };
+}
+
+export interface RemoveIdeaDocumentParams {
+  draft: IdeaDraft;
+  documents: WizardIdeaDocuments;
+  slotKey: DocumentSlotKey;
+  letterIndex?: number;
+}
+
+export interface RemoveIdeaDocumentResult {
+  nextDocuments: WizardIdeaDocuments;
+  updatedDraft: IdeaDraft;
+}
+
+export async function removeIdeaDocumentFromFirestore({
+  draft,
+  documents,
+  slotKey,
+  letterIndex,
+}: RemoveIdeaDocumentParams): Promise<RemoveIdeaDocumentResult> {
+  const firestoreReady = await ensureFirestoreReadyForUser(draft.submitterId);
+  if (!firestoreReady) {
+    throw new Error(getFirestoreAuthFailureReason(draft.submitterId));
+  }
+
+  const targetFile =
+    slotKey === 'letters'
+      ? typeof letterIndex === 'number'
+        ? documents.letters[letterIndex] || null
+        : null
+      : documents[slotKey];
+
+  if (!targetFile) {
+    return {
+      nextDocuments: sanitizeIdeaDocumentsForFirestore(documents),
+      updatedDraft: draft,
+    };
+  }
+
+  const nowIso = new Date().toISOString();
+  const targetCollection = draft.storageTarget === 'submissions' ? 'submissions' : 'ideas';
+  const ideaRef = doc(db, targetCollection, draft.id);
+  const previousDocuments = sanitizeIdeaDocumentsForFirestore(documents);
+  const nextDocuments = sanitizeIdeaDocumentsForFirestore(
+    slotKey === 'letters'
+      ? {
+          ...previousDocuments,
+          letters: previousDocuments.letters.filter((_, idx) => idx !== letterIndex),
+        }
+      : {
+          ...previousDocuments,
+          [slotKey]: null,
+        }
+  );
+
+  // 1. Update idea.documents metadata first so we can roll back cleanly if file deletion fails
+  try {
+    await updateDoc(ideaRef, {
+      'idea.documents': nextDocuments,
+      updatedAt: nowIso,
+    });
+  } catch (err) {
+    if (isPermissionDeniedError(err)) {
+      logFirestorePermissionError(err, 'update', `${targetCollection}/${draft.id}`);
+    }
+    throw new Error('Could not save. Retry');
+  }
+
+  // 2. Delete the file document
+  if (targetFile.fileId) {
+    try {
+      await deleteDoc(doc(db, targetCollection, draft.id, 'files', targetFile.fileId));
+    } catch (err) {
+      // Roll back metadata so file doc & metadata stay consistent
+      await updateDoc(ideaRef, {
+        'idea.documents': previousDocuments,
+        updatedAt: new Date().toISOString(),
+      }).catch(() => {
+        // Best-effort rollback
+      });
+      if (isPermissionDeniedError(err)) {
+        logFirestorePermissionError(
+          err,
+          'delete',
+          `${targetCollection}/${draft.id}/files/${targetFile.fileId}`
+        );
+      }
+      throw new Error('Could not save. Retry');
+    }
+  }
+
+  clearLocalDraftsForUser(draft.submitterId);
+  const currentIdea = draft.idea ?? createEmptyIdeaDetails();
+  const updatedDraft: IdeaDraft = {
+    ...draft,
+    idea: {
+      ...currentIdea,
+      documents: nextDocuments,
+    },
+    updatedAt: nowIso,
+  };
+
+  return {
+    nextDocuments,
+    updatedDraft,
+  };
+}
+
+export async function openIdeaDocumentPreview(
+  ideaId: string,
+  storageTarget: DraftStorageTarget | undefined,
+  file: IdeaDocumentFile
+): Promise<void> {
+  if (!ideaId || !file?.fileId) {
+    throw new Error('File record is missing.');
+  }
+
+  const targetCollection = storageTarget === 'submissions' ? 'submissions' : 'ideas';
+  const fileSnap = await getDoc(doc(db, targetCollection, ideaId, 'files', file.fileId));
+  if (!fileSnap.exists()) {
+    throw new Error('File could not be found.');
+  }
+
+  const raw = fileSnap.data() as Record<string, unknown>;
+  const base64Data = typeof raw.data === 'string' ? raw.data : '';
+  if (!base64Data) {
+    throw new Error('File data is missing.');
+  }
+
+  const contentType =
+    typeof raw.contentType === 'string' && raw.contentType.trim()
+      ? raw.contentType.trim()
+      : file.contentType || 'application/octet-stream';
+
+  const bytes = base64ToUint8Array(base64Data);
+  const blob = new Blob([bytes], { type: contentType });
+  const objectUrl = URL.createObjectURL(blob);
+
+  const anchor = document.createElement('a');
+  anchor.href = objectUrl;
+  anchor.target = '_blank';
+  anchor.rel = 'noopener noreferrer';
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+
+  // Revoke object URL after browser tab has loaded the Blob
+  window.setTimeout(() => {
+    URL.revokeObjectURL(objectUrl);
+  }, 60_000);
+}
+
+export function sanitizeIdeaDocumentsForFirestore(
+  docs: WizardIdeaDocuments
+): WizardIdeaDocuments {
+  const cleanFile = (file: IdeaDocumentFile | null): IdeaDocumentFile | null => {
+    if (!file || !file.fileId?.trim()) return null;
+    const cleanNote = file.note?.trim().slice(0, 200);
+    return {
+      fileId: file.fileId.trim(),
+      name: file.name.trim(),
+      size: Math.max(0, Math.round(file.size)),
+      contentType: file.contentType.trim(),
+      uploadedAt: file.uploadedAt,
+      ...(cleanNote ? { note: cleanNote } : {}),
+    };
+  };
+
+  return {
+    omang: cleanFile(docs.omang),
+    conceptNote: cleanFile(docs.conceptNote),
+    budget: cleanFile(docs.budget),
+    proofOfResidence: cleanFile(docs.proofOfResidence),
+    cipa: cleanFile(docs.cipa),
+    letters: docs.letters
+      .map((item) => cleanFile(item))
+      .filter((item): item is IdeaDocumentFile => Boolean(item))
+      .slice(0, MAX_SUPPORT_LETTERS),
+  };
+}
+
+export async function saveIdeaStep3Documents(
+  draft: IdeaDraft,
+  documentsInput: WizardIdeaDocuments,
+  nextStepOverride?: number
+): Promise<IdeaDraft> {
+  const firestoreReady = await ensureFirestoreReadyForUser(draft.submitterId);
+  if (!firestoreReady) {
+    throw new Error(getFirestoreAuthFailureReason(draft.submitterId));
+  }
+
+  const nowIso = new Date().toISOString();
+  const cleanDocuments = sanitizeIdeaDocumentsForFirestore(documentsInput);
+  const resolvedStep =
+    nextStepOverride !== undefined
+      ? Math.max(draft.currentStep || 3, Math.min(4, nextStepOverride))
+      : Math.max(1, Math.min(4, draft.currentStep || 3));
+
+  const currentIdea = draft.idea ?? createEmptyIdeaDetails();
+  const updatedDraft: IdeaDraft = {
+    ...draft,
+    status: 'draft',
+    currentStep: resolvedStep,
+    idea: {
+      ...currentIdea,
+      documents: cleanDocuments,
+    },
+    updatedAt: nowIso,
+  };
+
+  const targetCollection = draft.storageTarget === 'submissions' ? 'submissions' : 'ideas';
+  const docRef = doc(db, targetCollection, draft.id);
+
+  try {
+    await updateDoc(docRef, {
+      'idea.documents': cleanDocuments,
+      updatedAt: nowIso,
+      ...(nextStepOverride !== undefined ? { currentStep: resolvedStep } : {}),
+    });
+
+    // Keep optional letter notes synced on the corresponding file documents
+    await Promise.all(
+      cleanDocuments.letters.map((letter) =>
+        updateDoc(doc(db, targetCollection, draft.id, 'files', letter.fileId), {
+          note: letter.note || '',
+        }).catch(() => {
+          // Ignore sync if file doc note already matches or missing
+        })
+      )
+    );
+  } catch (err) {
+    if (isPermissionDeniedError(err)) {
+      logFirestorePermissionError(err, 'update', `${targetCollection}/${draft.id}`);
+    }
+    throw new Error('Could not save. Retry');
+  }
+
+  clearLocalDraftsForUser(draft.submitterId);
+  return updatedDraft;
+}
+
+/* ============================================================================
+ * SUBMISSION WIZARD — STEP 4 (REVIEW, DECLARATION & FINAL SUBMISSION)
+ * ============================================================================ */
+
+export async function saveIdeaStep4Declaration(
+  draft: IdeaDraft,
+  declarationInput: WizardIdeaDeclaration,
+  nextStepOverride?: number
+): Promise<IdeaDraft> {
+  const firestoreReady = await ensureFirestoreReadyForUser(draft.submitterId);
+  if (!firestoreReady) {
+    throw new Error(getFirestoreAuthFailureReason(draft.submitterId));
+  }
+
+  const nowIso = new Date().toISOString();
+  const cleanDeclaration: WizardIdeaDeclaration = {
+    accepted: Boolean(declarationInput.accepted),
+    acceptedAt: declarationInput.accepted
+      ? declarationInput.acceptedAt || nowIso
+      : null,
+  };
+
+  const resolvedStep =
+    nextStepOverride !== undefined
+      ? Math.max(draft.currentStep || 4, Math.min(4, nextStepOverride))
+      : Math.max(4, Math.min(4, draft.currentStep || 4));
+
+  const currentIdea = draft.idea ?? createEmptyIdeaDetails();
+  const updatedDraft: IdeaDraft = {
+    ...draft,
+    status: 'draft',
+    currentStep: resolvedStep,
+    idea: {
+      ...currentIdea,
+      declaration: cleanDeclaration,
+    },
+    updatedAt: nowIso,
+  };
+
+  const targetCollection = draft.storageTarget === 'submissions' ? 'submissions' : 'ideas';
+  const docRef = doc(db, targetCollection, draft.id);
+
+  try {
+    await updateDoc(docRef, {
+      'idea.declaration': cleanDeclaration,
+      updatedAt: nowIso,
+      ...(nextStepOverride !== undefined ? { currentStep: resolvedStep } : {}),
+    });
+  } catch (err) {
+    if (isPermissionDeniedError(err)) {
+      logFirestorePermissionError(err, 'update', `${targetCollection}/${draft.id}`);
+      throw new Error(
+        `Could not save your declaration to Firestore (Missing or insufficient permissions). Publish firestore.rules to your Firebase project (${firebaseConfig.projectId}) and retry.`
+      );
+    }
+    try {
+      await setDoc(
+        docRef,
+        {
+          idea: {
+            declaration: cleanDeclaration,
+          },
+          updatedAt: nowIso,
+          ...(nextStepOverride !== undefined ? { currentStep: resolvedStep } : {}),
+        },
+        { merge: true }
+      );
+    } catch (fallbackErr) {
+      if (isPermissionDeniedError(fallbackErr)) {
+        logFirestorePermissionError(
+          fallbackErr,
+          'write',
+          `${targetCollection}/${draft.id}`
+        );
+      }
+      throw fallbackErr instanceof Error
+        ? fallbackErr
+        : new Error('Could not save your declaration to Firestore.');
+    }
+  }
+
+  clearLocalDraftsForUser(draft.submitterId);
+  return updatedDraft;
+}
+
+function isTransactionContentionError(err: unknown): boolean {
+  const code = (err as { code?: string })?.code || '';
+  const message =
+    err instanceof Error ? err.message.toLowerCase() : String(err || '').toLowerCase();
+  return (
+    code === 'aborted' ||
+    code === 'failed-precondition' ||
+    message.includes('contention') ||
+    message.includes('aborted')
+  );
+}
+
+export async function submitFinalIdeaApplication(draft: IdeaDraft): Promise<IdeaDraft> {
+  const firestoreReady = await ensureFirestoreReadyForUser(draft.submitterId);
+  if (!firestoreReady) {
+    throw new Error(getFirestoreAuthFailureReason(draft.submitterId));
+  }
+
+  if (draft.status !== 'draft') {
+    return draft;
+  }
+
+  const nowIso = new Date().toISOString();
+  const cleanDeclaration: WizardIdeaDeclaration = {
+    accepted: true,
+    acceptedAt: draft.idea?.declaration?.acceptedAt || nowIso,
+  };
+
+  const targetCollection = draft.storageTarget === 'submissions' ? 'submissions' : 'ideas';
+  const ideaRef = doc(db, targetCollection, draft.id);
+  const year = new Date().getFullYear();
+  const counterRef = doc(db, 'counters', `ideaRef-${year}`);
+  const ownerUid = auth?.currentUser?.uid || draft.submitterId;
+
+  let assignedReference = draft.reference?.trim() || '';
+  const maxAttempts = 3;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const txResult = await runTransaction(db, async (tx) => {
+        const ideaSnap = await tx.get(ideaRef);
+        if (!ideaSnap.exists()) {
+          throw new Error('Application draft could not be found.');
+        }
+
+        const ideaData = ideaSnap.data() as Record<string, unknown>;
+        if (String(ideaData.submitterId || '') !== ownerUid) {
+          throw new Error('You do not have permission to submit this application.');
+        }
+
+        const existingRef =
+          typeof ideaData.reference === 'string' && ideaData.reference.trim()
+            ? ideaData.reference.trim()
+            : '';
+
+        if (existingRef) {
+          if (String(ideaData.status || '').toLowerCase() === 'draft') {
+            tx.update(ideaRef, {
+              status: 'submitted',
+              submittedAt: ideaData.submittedAt || serverTimestamp(),
+              reference: existingRef,
+              'idea.declaration': cleanDeclaration,
+              currentStep: 4,
+              stage: 'submitted',
+              updatedAt: serverTimestamp(),
+            });
+          }
+          return { reference: existingRef };
+        }
+
+        const counterSnap = await tx.get(counterRef);
+        const counterData = counterSnap.exists()
+          ? (counterSnap.data() as Record<string, unknown>)
+          : null;
+        const currentValueRaw = counterData
+          ? Number(counterData.value ?? counterData.seq ?? 0)
+          : 0;
+        const nextValue =
+          Number.isFinite(currentValueRaw) && currentValueRaw >= 0
+            ? Math.floor(currentValueRaw) + 1
+            : 1;
+        const nextReference = `CEDA-INN-${year}-${String(nextValue).padStart(4, '0')}`;
+
+        if (!counterSnap.exists()) {
+          tx.set(counterRef, {
+            value: 1,
+            year,
+            updatedAt: serverTimestamp(),
+          });
+        } else {
+          tx.update(counterRef, {
+            value: nextValue,
+            year,
+            updatedAt: serverTimestamp(),
+          });
+        }
+
+        tx.update(ideaRef, {
+          status: 'submitted',
+          submittedAt: serverTimestamp(),
+          reference: nextReference,
+          'idea.declaration': cleanDeclaration,
+          currentStep: 4,
+          stage: 'submitted',
+          updatedAt: serverTimestamp(),
+        });
+
+        return { reference: nextReference };
+      });
+
+      assignedReference = txResult.reference;
+      break;
+    } catch (err) {
+      if (isTransactionContentionError(err) && attempt < maxAttempts) {
+        await new Promise((resolve) =>
+          window.setTimeout(resolve, 120 * attempt + Math.round(Math.random() * 80))
+        );
+        continue;
+      }
+
+      if (isPermissionDeniedError(err)) {
+        logFirestorePermissionError(err, 'update', `${targetCollection}/${draft.id}`);
+        throw new Error(
+          `Unable to submit your application due to Firestore permissions. Verify your required documents and declaration are complete, or publish the latest firestore.rules to (${firebaseConfig.projectId}).`
+        );
+      }
+
+      throw err instanceof Error
+        ? err
+        : new Error('Unable to submit your application right now. Please try again.');
+    }
+  }
+
+  clearLocalDraftsForUser(draft.submitterId);
+  const currentIdea = draft.idea ?? createEmptyIdeaDetails();
+  return {
+    ...draft,
+    status: 'submitted',
+    currentStep: 4,
+    reference: assignedReference || undefined,
+    stage: 'submitted',
+    submittedAt: nowIso,
+    updatedAt: nowIso,
+    idea: {
+      ...currentIdea,
+      declaration: cleanDeclaration,
+    },
+  };
+}
+
+
 

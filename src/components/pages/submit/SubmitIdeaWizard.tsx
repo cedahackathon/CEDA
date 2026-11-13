@@ -6,36 +6,55 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../../context/AuthContext';
 import { BOTSWANA_DISTRICTS } from '../../../config/districts';
+import { DOCUMENT_SLOTS, DocumentSlotKey } from '../../../data/documentOptions';
 import {
+  DECLARATION_SUMMARY_TEXT,
   GENDER_OPTIONS,
   isLiveChatAvailableNow,
   STATUTORY_DECLARATION_TEXT,
+  SUBMITTER_DOCUMENT_TIPS,
   SUBMITTER_SUPPORT_CONFIG,
+  SUBMITTER_WHAT_HAPPENS_NEXT,
   SUBMITTER_WIZARD_STEPS,
   SUBMITTER_WRITING_TIP,
 } from '../../../data/submitterMock';
 import { SubmitterLayout } from '../../submitter/SubmitterLayout';
 import {
   createEmptyIdeaDetails,
+  createEmptyIdeaDocuments,
   findExistingIdeaDraft,
+  findIdeaDraftOrById,
   findOrCreateIdeaDraft,
   formatBotswanaPhoneDisplay,
   formatLongDateBotswana,
   formatRelativeSavedTime,
   hasVerifiedIdentityProfile,
   IdeaDraft,
+  IdeaDocumentFile,
   isStep1ApplicantValid,
   isValidBotswanaMobile,
   isValidOmangDigits,
   loadUserProfileForWizard,
   maskOmangLast3,
   normalizeBotswanaPhoneInput,
+  normalizeIdeaDeclaration,
+  normalizeIdeaDocuments,
+  openIdeaDocumentPreview,
   ProfileIdentityUpdate,
+  removeIdeaDocumentFromFirestore,
+  saveIdeaDocumentToFirestore,
   saveIdeaDraft,
   saveIdeaStep2,
+  saveIdeaStep3Documents,
+  saveIdeaStep4Declaration,
+  submitFinalIdeaApplication,
+  subscribeToIdeaDraft,
+  validateDocumentFileForSlot,
   WizardApplicantDetails,
   WizardApplicantType,
+  WizardIdeaDeclaration,
   WizardIdeaDetails,
+  WizardIdeaDocuments,
   WizardTeamMember,
 } from '../../../services/submitterService';
 import { UserProfile } from '../../../types/auth';
@@ -45,6 +64,12 @@ import {
   Step2IdeaDetails,
   validateStep2Idea,
 } from './Step2IdeaDetails';
+import {
+  ActiveDocumentUpload,
+  Step3Documents,
+  validateStep3Documents,
+} from './Step3Documents';
+import { Step4ReviewSubmit } from './Step4ReviewSubmit';
 
 interface SubmitIdeaWizardProps {
   routePath: string;
@@ -101,6 +126,13 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
   const cleanPath = routePath.split('?')[0];
   const activeStep = resolveStepFromPath(cleanPath);
 
+  const searchParams = useMemo(() => {
+    const qIdx = routePath.indexOf('?');
+    return new URLSearchParams(qIdx >= 0 ? routePath.slice(qIdx + 1) : '');
+  }, [routePath]);
+  const isReturningToReview = searchParams.get('returnTo') === 'review';
+  const ideaIdParam = searchParams.get('ideaId');
+
   const activeUid = currentUser?.id || '';
 
   const [profile, setProfile] = useState<UserProfile | null>(currentUser);
@@ -109,6 +141,13 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
   const [rawOmangInput, setRawOmangInput] = useState('');
   const [idea, setIdea] = useState<WizardIdeaDetails | null>(null);
   const [jobsRawInput, setJobsRawInput] = useState('');
+  const [documents, setDocuments] = useState<WizardIdeaDocuments>(() =>
+    createEmptyIdeaDocuments()
+  );
+  const [step4Declaration, setStep4Declaration] = useState<WizardIdeaDeclaration>({
+    accepted: false,
+    acceptedAt: null,
+  });
 
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -129,6 +168,21 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
   const [hasAttemptedNext, setHasAttemptedNext] = useState(false);
   const [touchedStep2, setTouchedStep2] = useState<Partial<Record<Step2FieldKey, boolean>>>({});
   const [hasAttemptedNextStep2, setHasAttemptedNextStep2] = useState(false);
+  const [touchedStep3Slots, setTouchedStep3Slots] = useState<
+    Partial<Record<DocumentSlotKey, boolean>>
+  >({});
+  const [hasAttemptedNextStep3, setHasAttemptedNextStep3] = useState(false);
+  const [touchedStep4Declaration, setTouchedStep4Declaration] = useState(false);
+  const [hasAttemptedSubmitStep4, setHasAttemptedSubmitStep4] = useState(false);
+  const [step4PreviewError, setStep4PreviewError] = useState<string | null>(null);
+  const [submitErrorMessage, setSubmitErrorMessage] = useState<string | null>(null);
+  const [isConfirmDialogOpen, setIsConfirmDialogOpen] = useState(false);
+  const [isSubmittingFinal, setIsSubmittingFinal] = useState(false);
+  const [step4LiveAnnouncement, setStep4LiveAnnouncement] = useState('');
+  const [activeUploads, setActiveUploads] = useState<ActiveDocumentUpload[]>([]);
+  const [slotErrors, setSlotErrors] = useState<Partial<Record<DocumentSlotKey, string>>>({});
+  const [previewingDocKey, setPreviewingDocKey] = useState<string | null>(null);
+  const [step3LiveAnnouncement, setStep3LiveAnnouncement] = useState('');
   const [nextButtonTooltipVisible, setNextButtonTooltipVisible] = useState(false);
 
   // Team inline add row
@@ -148,6 +202,23 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
   const inFlightSavePromiseRef = useRef<Promise<boolean> | null>(null);
   const fieldRefs = useRef<Partial<Record<FieldKey, HTMLElement | null>>>({});
   const step2FieldRefs = useRef<Partial<Record<Step2FieldKey, HTMLElement | null>>>({});
+  const step3SlotFocusRefs = useRef<Partial<Record<DocumentSlotKey, HTMLElement | null>>>({});
+  const step4DeclarationCheckboxRef = useRef<HTMLInputElement | null>(null);
+  const submitFinalButtonRef = useRef<HTMLButtonElement | null>(null);
+  const documentsRef = useRef<WizardIdeaDocuments>(createEmptyIdeaDocuments());
+  const step4DeclarationRef = useRef<WizardIdeaDeclaration>({
+    accepted: false,
+    acceptedAt: null,
+  });
+  const isDirtyRef = useRef<boolean>(false);
+  const isSubmittingFinalRef = useRef<boolean>(false);
+  const lastFailedSlotUploadRef = useRef<
+    Partial<Record<DocumentSlotKey, { file: File; replacingFileId?: string }>>
+  >({});
+
+  useEffect(() => {
+    isDirtyRef.current = isDirty;
+  }, [isDirty]);
 
   const hasVerifiedIdentity = useMemo(
     () => hasVerifiedIdentityProfile(profile),
@@ -168,7 +239,14 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
       const loadedDraft =
         activeStep === 1
           ? await findOrCreateIdeaDraft(activeUid, loadedProfile)
+          : activeStep === 4
+          ? await findIdeaDraftOrById(activeUid, loadedProfile, ideaIdParam)
           : await findExistingIdeaDraft(activeUid, loadedProfile);
+
+      if (loadedDraft && loadedDraft.status !== 'draft') {
+        setCurrentRoute(`/submit/confirmation/${loadedDraft.id}`);
+        return;
+      }
 
       if (activeStep >= 2) {
         if (
@@ -186,6 +264,18 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
       }
 
       const hydratedIdea = loadedDraft.idea ?? createEmptyIdeaDetails();
+      if (activeStep >= 3 && !validateStep2Idea(hydratedIdea).isValid) {
+        setCurrentRoute('/submit/idea');
+        return;
+      }
+
+      const hydratedDocuments = normalizeIdeaDocuments(hydratedIdea.documents);
+      if (activeStep >= 4 && !validateStep3Documents(hydratedDocuments).isValid) {
+        setCurrentRoute('/submit/documents');
+        return;
+      }
+
+      const hydratedDeclaration = normalizeIdeaDeclaration(hydratedIdea.declaration);
 
       setProfile(loadedProfile);
       setDraft(loadedDraft);
@@ -197,11 +287,27 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
       setJobsRawInput(
         hydratedIdea.jobsEstimate !== null ? String(hydratedIdea.jobsEstimate) : ''
       );
+      documentsRef.current = hydratedDocuments;
+      setDocuments(hydratedDocuments);
+      step4DeclarationRef.current = hydratedDeclaration;
+      setStep4Declaration(hydratedDeclaration);
       setIsBusinessAccordionOpen(loadedDraft.applicant.type === 'business');
       setTouched({});
       setHasAttemptedNext(false);
       setTouchedStep2({});
       setHasAttemptedNextStep2(false);
+      setTouchedStep3Slots({});
+      setHasAttemptedNextStep3(false);
+      setTouchedStep4Declaration(false);
+      setHasAttemptedSubmitStep4(false);
+      setStep4PreviewError(null);
+      setSubmitErrorMessage(null);
+      setIsConfirmDialogOpen(false);
+      setIsSubmittingFinal(false);
+      isSubmittingFinalRef.current = false;
+      setSlotErrors({});
+      setStep3LiveAnnouncement('');
+      setStep4LiveAnnouncement('');
 
       const updatedMs = new Date(loadedDraft.updatedAt).getTime();
       setLastSavedAtMs(!Number.isNaN(updatedMs) ? updatedMs : Date.now());
@@ -214,11 +320,59 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
     } finally {
       setIsLoading(false);
     }
-  }, [activeStep, activeUid, currentUser, setCurrentRoute]);
+  }, [activeStep, activeUid, currentUser, ideaIdParam, setCurrentRoute]);
 
   useEffect(() => {
     loadWizardData();
   }, [loadWizardData]);
+
+  // Real-time Firestore listener on Step 4 (Review & submit)
+  useEffect(() => {
+    if (activeStep !== 4 || isLoading || !draft?.id || !activeUid) return;
+
+    const unsubscribe = subscribeToIdeaDraft(
+      draft.id,
+      draft.storageTarget,
+      activeUid,
+      profile,
+      (nextDraft) => {
+        if (nextDraft.status !== 'draft') {
+          if (!isSubmittingFinalRef.current) {
+            setIsDirty(false);
+            setCurrentRoute(`/submit/confirmation/${nextDraft.id}`);
+          }
+          return;
+        }
+
+        const nextIdea = nextDraft.idea ?? createEmptyIdeaDetails();
+        const nextDocs = normalizeIdeaDocuments(nextIdea.documents);
+        const nextDecl = normalizeIdeaDeclaration(nextIdea.declaration);
+
+        setDraft(nextDraft);
+        setApplicant(nextDraft.applicant);
+        setIdea(nextIdea);
+        setJobsRawInput(
+          nextIdea.jobsEstimate !== null ? String(nextIdea.jobsEstimate) : ''
+        );
+        documentsRef.current = nextDocs;
+        setDocuments(nextDocs);
+
+        if (!isDirtyRef.current) {
+          step4DeclarationRef.current = nextDecl;
+          setStep4Declaration(nextDecl);
+          const updatedMs = new Date(nextDraft.updatedAt).getTime();
+          if (!Number.isNaN(updatedMs)) {
+            setLastSavedAtMs(updatedMs);
+          }
+        }
+      },
+      (err) => {
+        setSaveErrorMessage(err.message);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [activeStep, activeUid, draft?.id, draft?.storageTarget, isLoading, profile, setCurrentRoute]);
 
   // Update relative time label & live chat availability every 15s / 60s
   useEffect(() => {
@@ -233,17 +387,17 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
     };
   }, []);
 
-  // Warn on browser tab close / reload when unsaved changes exist
+  // Warn on browser tab close / reload when unsaved changes or active uploads exist
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (isDirty) {
+      if (isDirty || activeUploads.length > 0) {
         e.preventDefault();
         e.returnValue = '';
       }
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [isDirty]);
+  }, [isDirty, activeUploads.length]);
 
   // Validation computation
   const validation = useMemo(() => {
@@ -267,7 +421,9 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
       });
       requiredStatus.push({
         key: 'omang',
-        valid: isValidOmangDigits(rawOmangInput),
+        valid:
+          isValidOmangDigits(rawOmangInput) ||
+          (activeStep > 1 && /^•{6}\d{3}$/.test(applicant.omang.trim())),
         errorMsg: 'Enter a valid 9-digit Botswana Omang number.',
       });
       const dobVal = applicant.dateOfBirth.trim();
@@ -349,11 +505,16 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
       completedCount,
       totalRequired: requiredStatus.length,
     };
-  }, [applicant, hasVerifiedIdentity, rawOmangInput]);
+  }, [activeStep, applicant, hasVerifiedIdentity, rawOmangInput]);
 
   const step2Validation = useMemo(
     () => validateStep2Idea(idea, jobsRawInput),
     [idea, jobsRawInput]
+  );
+
+  const step3Validation = useMemo(
+    () => validateStep3Documents(documents),
+    [documents]
   );
 
   const step1ValidForAside = useMemo(
@@ -361,18 +522,83 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
     [applicant, profile, validation.isValid]
   );
 
-  const progressPercentage = useMemo(() => {
-    const activeVal = activeStep === 2 ? step2Validation : validation;
-    if (activeVal.totalRequired === 0) return 0;
-    return Math.round((activeVal.completedCount / activeVal.totalRequired) * 100);
-  }, [activeStep, step2Validation, validation]);
+  const step4ReadyToSubmit = useMemo(
+    () =>
+      step1ValidForAside &&
+      step2Validation.isValid &&
+      step3Validation.isValid &&
+      step4Declaration.accepted,
+    [
+      step1ValidForAside,
+      step2Validation.isValid,
+      step3Validation.isValid,
+      step4Declaration.accepted,
+    ]
+  );
+
+  const applicationProgress = useMemo(() => {
+    const step1Total = applicant ? validation.totalRequired : 0;
+    const step1Completed = applicant
+      ? step1ValidForAside
+        ? step1Total
+        : validation.completedCount
+      : 0;
+
+    const step2Total = step2Validation.totalRequired;
+    const step2Completed = step2Validation.completedCount;
+
+    const step3Total = step3Validation.totalMandatory;
+    const step3Completed = step3Validation.attachedMandatoryCount;
+
+    const step4Total = 1;
+    const step4Completed = step4Declaration.accepted ? 1 : 0;
+
+    const totalTasks = step1Total + step2Total + step3Total + step4Total;
+    const completedTasks =
+      step1Completed + step2Completed + step3Completed + step4Completed;
+
+    let percentage = 0;
+    if (totalTasks > 0 && completedTasks > 0) {
+      if (completedTasks >= totalTasks) {
+        percentage = 100;
+      } else {
+        percentage = Math.min(
+          99,
+          Math.max(1, Math.round((completedTasks / totalTasks) * 100))
+        );
+      }
+    }
+
+    return {
+      completedTasks,
+      totalTasks,
+      percentage,
+      step1Completed,
+      step1Total,
+    };
+  }, [
+    applicant,
+    step1ValidForAside,
+    step2Validation.completedCount,
+    step2Validation.totalRequired,
+    step3Validation.attachedMandatoryCount,
+    step3Validation.totalMandatory,
+    step4Declaration.accepted,
+    validation.completedCount,
+    validation.totalRequired,
+  ]);
+
+  const progressPercentage = applicationProgress.percentage;
 
   const performSave = useCallback(
-    async (targetStepOverride?: number): Promise<boolean> => {
+    async (
+      targetStepOverride?: number,
+      documentsOverride?: WizardIdeaDocuments,
+      declarationOverride?: WizardIdeaDeclaration
+    ): Promise<boolean> => {
       if (!draft) return false;
       if (activeStep === 1 && !applicant) return false;
       if (activeStep === 2 && !idea) return false;
-      if (activeStep > 2) return true;
 
       if (blurSaveTimerRef.current) {
         window.clearTimeout(blurSaveTimerRef.current);
@@ -380,7 +606,11 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
       }
 
       if (inFlightSavePromiseRef.current) {
-        if (targetStepOverride === undefined) {
+        if (
+          targetStepOverride === undefined &&
+          documentsOverride === undefined &&
+          declarationOverride === undefined
+        ) {
           return inFlightSavePromiseRef.current;
         }
         await inFlightSavePromiseRef.current.catch(() => false);
@@ -391,6 +621,36 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
         setSaveErrorMessage(null);
 
         try {
+          if (activeStep === 4) {
+            const declToSave = declarationOverride ?? step4DeclarationRef.current;
+            const savedDraft = await saveIdeaStep4Declaration(
+              draft,
+              declToSave,
+              targetStepOverride
+            );
+            setDraft(savedDraft);
+            setLastSavedAtMs(Date.now());
+            setNowTickMs(Date.now());
+            setSaveStatus('saved');
+            setIsDirty(false);
+            return true;
+          }
+
+          if (activeStep === 3) {
+            const docsToSave = documentsOverride ?? documentsRef.current;
+            const savedDraft = await saveIdeaStep3Documents(
+              draft,
+              docsToSave,
+              targetStepOverride
+            );
+            setDraft(savedDraft);
+            setLastSavedAtMs(Date.now());
+            setNowTickMs(Date.now());
+            setSaveStatus('saved');
+            setIsDirty(false);
+            return true;
+          }
+
           if (activeStep === 2 && idea) {
             const nextStep = targetStepOverride ?? Math.max(draft.currentStep || 2, 2);
             const savedDraft = await saveIdeaStep2(draft, idea, nextStep);
@@ -454,12 +714,22 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
 
   // Autosave every 10 seconds when changed (debounced)
   useEffect(() => {
-    if (!isDirty || (activeStep !== 1 && activeStep !== 2)) return;
+    if (!isDirty || activeStep < 1 || activeStep > 4) return;
     const timer = window.setTimeout(() => {
       performSave();
     }, 10_000);
     return () => window.clearTimeout(timer);
-  }, [isDirty, applicant, rawOmangInput, idea, jobsRawInput, activeStep, performSave]);
+  }, [
+    isDirty,
+    applicant,
+    rawOmangInput,
+    idea,
+    jobsRawInput,
+    documents,
+    step4Declaration,
+    activeStep,
+    performSave,
+  ]);
 
   const triggerBlurAutosave = useCallback(() => {
     if (!isDirty) return;
@@ -483,12 +753,17 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
     (targetPath: string): boolean => {
       const targetClean = targetPath.split('?')[0];
       if (targetClean === cleanPath) return true;
+      if (activeUploads.length > 0) {
+        return window.confirm(
+          'A file upload is still in progress. Leave this page without waiting for it to finish?'
+        );
+      }
       if (!isDirty) return true;
       return window.confirm(
         'You have unsaved changes on your draft. Leave this page without saving?'
       );
     },
-    [cleanPath, isDirty]
+    [activeUploads.length, cleanPath, isDirty]
   );
 
   const navigateSafely = useCallback(
@@ -621,10 +896,18 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
 
     setIsAdvancingStep(true);
     try {
-      const nextStep = Math.max(draft?.currentStep || 1, 2);
+      const canReturnReview =
+        isReturningToReview && step2Validation.isValid && step3Validation.isValid;
+      const nextStep = canReturnReview ? 4 : Math.max(draft?.currentStep || 1, 2);
       const savedOk = await performSave(nextStep);
       if (savedOk) {
-        setCurrentRoute('/submit/idea');
+        if (canReturnReview) {
+          setCurrentRoute('/submit/review');
+        } else {
+          setCurrentRoute(
+            isReturningToReview ? '/submit/idea?returnTo=review' : '/submit/idea'
+          );
+        }
       }
     } finally {
       setIsAdvancingStep(false);
@@ -672,13 +955,408 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
 
     setIsAdvancingStep(true);
     try {
-      const nextStep = Math.max(draft?.currentStep || 2, 3);
+      const canReturnReview = isReturningToReview && step3Validation.isValid;
+      const nextStep = canReturnReview ? 4 : Math.max(draft?.currentStep || 2, 3);
       const savedOk = await performSave(nextStep);
       if (savedOk) {
-        setCurrentRoute('/submit/documents');
+        if (canReturnReview) {
+          setCurrentRoute('/submit/review');
+        } else {
+          setCurrentRoute(
+            isReturningToReview
+              ? '/submit/documents?returnTo=review'
+              : '/submit/documents'
+          );
+        }
       }
     } finally {
       setIsAdvancingStep(false);
+    }
+  };
+
+  const handleSelectFileForSlot = useCallback(
+    async (
+      slotKey: DocumentSlotKey,
+      file: File,
+      replacingFileId?: string
+    ): Promise<boolean> => {
+      if (!draft) return false;
+
+      const currentDocs = documentsRef.current;
+      const isReplacing = Boolean(replacingFileId && slotKey !== 'letters');
+
+      const validationError = validateDocumentFileForSlot(
+        file,
+        currentDocs,
+        slotKey,
+        isReplacing
+      );
+      if (validationError) {
+        delete lastFailedSlotUploadRef.current[slotKey];
+        setSlotErrors((prev) => ({ ...prev, [slotKey]: validationError }));
+        setTouchedStep3Slots((prev) => ({ ...prev, [slotKey]: true }));
+        setStep3LiveAnnouncement(`File rejected: ${validationError}`);
+        return false;
+      }
+
+      setSlotErrors((prev) => {
+        const next = { ...prev };
+        delete next[slotKey];
+        return next;
+      });
+      setTouchedStep3Slots((prev) => ({ ...prev, [slotKey]: true }));
+
+      const slotMeta = DOCUMENT_SLOTS.find((s) => s.key === slotKey);
+      const safeSlotLabel = slotMeta?.title || 'Document';
+      const uploadId = `up-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+      setActiveUploads((prev) => [
+        ...prev,
+        {
+          id: uploadId,
+          slotKey,
+          fileName: file.name.trim(),
+          replacingFileId,
+        },
+      ]);
+      setStep3LiveAnnouncement(`Saving ${safeSlotLabel}.`);
+
+      try {
+        const result = await saveIdeaDocumentToFirestore({
+          draft,
+          documents: currentDocs,
+          docType: slotKey,
+          file,
+          replacingFileId,
+        });
+
+        delete lastFailedSlotUploadRef.current[slotKey];
+        documentsRef.current = result.nextDocuments;
+        setDocuments(result.nextDocuments);
+        setDraft(result.updatedDraft);
+        setLastSavedAtMs(Date.now());
+        setNowTickMs(Date.now());
+        setSaveStatus('saved');
+        setIsDirty(false);
+
+        setStep3LiveAnnouncement(`${safeSlotLabel} saved.`);
+        return true;
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : 'Could not save. Retry';
+        if (message === 'Could not save. Retry') {
+          lastFailedSlotUploadRef.current[slotKey] = { file, replacingFileId };
+        } else {
+          delete lastFailedSlotUploadRef.current[slotKey];
+        }
+        setSlotErrors((prev) => ({ ...prev, [slotKey]: message }));
+        setStep3LiveAnnouncement(`Save failed for ${safeSlotLabel}.`);
+        return false;
+      } finally {
+        setActiveUploads((prev) => prev.filter((item) => item.id !== uploadId));
+      }
+    },
+    [draft]
+  );
+
+  const handleRetrySlotUpload = useCallback(
+    (slotKey: DocumentSlotKey) => {
+      const pending = lastFailedSlotUploadRef.current[slotKey];
+      if (!pending) return;
+      handleSelectFileForSlot(slotKey, pending.file, pending.replacingFileId);
+    },
+    [handleSelectFileForSlot]
+  );
+
+  const handlePreviewStep3File = useCallback(
+    async (previewId: string, file: IdeaDocumentFile) => {
+      if (!draft) return;
+      setPreviewingDocKey(previewId);
+      const slotKey = (previewId.startsWith('letters-') ? 'letters' : previewId) as DocumentSlotKey;
+      try {
+        await openIdeaDocumentPreview(draft.id, draft.storageTarget, file);
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : 'Could not open file preview.';
+        setSlotErrors((prev) => ({ ...prev, [slotKey]: message }));
+      } finally {
+        setPreviewingDocKey((prev) => (prev === previewId ? null : prev));
+      }
+    },
+    [draft]
+  );
+
+  const handleRemoveStep3File = useCallback(
+    async (slotKey: DocumentSlotKey, letterIndex?: number) => {
+      if (!draft) return;
+      const currentDocs = documentsRef.current;
+      const targetFile =
+        slotKey === 'letters'
+          ? typeof letterIndex === 'number'
+            ? currentDocs.letters[letterIndex] || null
+            : null
+          : currentDocs[slotKey];
+
+      if (!targetFile) return;
+
+      const confirmed = window.confirm(
+        'Remove this document from your draft? The saved file will be deleted.'
+      );
+      if (!confirmed) return;
+
+      setSlotErrors((prev) => {
+        const next = { ...prev };
+        delete next[slotKey];
+        return next;
+      });
+      setTouchedStep3Slots((prev) => ({ ...prev, [slotKey]: true }));
+
+      try {
+        const result = await removeIdeaDocumentFromFirestore({
+          draft,
+          documents: currentDocs,
+          slotKey,
+          letterIndex,
+        });
+        documentsRef.current = result.nextDocuments;
+        setDocuments(result.nextDocuments);
+        setDraft(result.updatedDraft);
+        setLastSavedAtMs(Date.now());
+        setNowTickMs(Date.now());
+        setSaveStatus('saved');
+        setIsDirty(false);
+
+        const slotMeta = DOCUMENT_SLOTS.find((s) => s.key === slotKey);
+        setStep3LiveAnnouncement(`${slotMeta?.title || 'Document'} removed and draft saved.`);
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : 'Could not save. Retry';
+        setSlotErrors((prev) => ({ ...prev, [slotKey]: message }));
+      }
+    },
+    [draft]
+  );
+
+  const handleUpdateLetterNote = useCallback((index: number, note: string) => {
+    setDocuments((prev) => {
+      const nextLetters = prev.letters.map((item, idx) =>
+        idx === index ? { ...item, note: note.slice(0, 200) } : item
+      );
+      const nextDocs: WizardIdeaDocuments = { ...prev, letters: nextLetters };
+      documentsRef.current = nextDocs;
+      return nextDocs;
+    });
+    setIsDirty(true);
+  }, []);
+
+  const handleBlurStep3Slot = useCallback((slotKey: DocumentSlotKey) => {
+    setTouchedStep3Slots((prev) => ({ ...prev, [slotKey]: true }));
+  }, []);
+
+  const handleStep3BackClick = async () => {
+    if (isBackingStep || isAdvancingStep) return;
+    if (activeUploads.length > 0) {
+      const proceed = window.confirm(
+        'A file is still being saved. Go back to Idea details anyway?'
+      );
+      if (!proceed) return;
+    }
+
+    setIsBackingStep(true);
+    try {
+      if (isDirty) {
+        const savedOk = await performSave();
+        if (!savedOk) {
+          const proceed = window.confirm(
+            'Your latest changes could not be saved. Go back to Idea details anyway?'
+          );
+          if (!proceed) return;
+        }
+      }
+      setCurrentRoute('/submit/idea');
+    } finally {
+      setIsBackingStep(false);
+    }
+  };
+
+  const handleStep3NextClick = async () => {
+    if (isAdvancingStep || isBackingStep) return;
+
+    if (!step3Validation.isValid) {
+      setHasAttemptedNextStep3(true);
+      const allTouched: Partial<Record<DocumentSlotKey, boolean>> = {};
+      step3Validation.missingMandatoryKeys.forEach((key) => {
+        allTouched[key] = true;
+      });
+      setTouchedStep3Slots((prev) => ({ ...prev, ...allTouched }));
+
+      const firstKey = step3Validation.missingMandatoryKeys[0];
+      const firstEl = firstKey ? step3SlotFocusRefs.current[firstKey] : null;
+      if (firstEl) {
+        firstEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        firstEl.focus();
+      }
+      return;
+    }
+
+    if (activeUploads.length > 0) {
+      setStep3LiveAnnouncement('Please wait while your file finishes saving before continuing.');
+      return;
+    }
+
+    setIsAdvancingStep(true);
+    try {
+      const nextStep = Math.max(draft?.currentStep || 3, 4);
+      const savedOk = await performSave(nextStep);
+      if (savedOk) {
+        setCurrentRoute('/submit/review');
+      }
+    } finally {
+      setIsAdvancingStep(false);
+    }
+  };
+
+  // Step 4 (Review & submit) handlers
+  const handleEditFromReview = useCallback(
+    async (targetStep: 1 | 2 | 3) => {
+      if (isBackingStep || isSubmittingFinal) return;
+      if (isDirty) {
+        const savedOk = await performSave();
+        if (!savedOk) {
+          const proceed = window.confirm(
+            'Your declaration status could not be saved. Continue to edit anyway?'
+          );
+          if (!proceed) return;
+        }
+      }
+      const pathMap: Record<1 | 2 | 3, string> = {
+        1: '/submit/applicant?returnTo=review',
+        2: '/submit/idea?returnTo=review',
+        3: '/submit/documents?returnTo=review',
+      };
+      setCurrentRoute(pathMap[targetStep]);
+    },
+    [isBackingStep, isDirty, isSubmittingFinal, performSave, setCurrentRoute]
+  );
+
+  const handleToggleStep4Declaration = useCallback(
+    (accepted: boolean) => {
+      const nextDecl: WizardIdeaDeclaration = {
+        accepted,
+        acceptedAt: accepted ? new Date().toISOString() : null,
+      };
+      step4DeclarationRef.current = nextDecl;
+      setStep4Declaration(nextDecl);
+      setTouchedStep4Declaration(true);
+      setSubmitErrorMessage(null);
+      setIsDirty(true);
+      if (blurSaveTimerRef.current) {
+        window.clearTimeout(blurSaveTimerRef.current);
+      }
+      blurSaveTimerRef.current = window.setTimeout(() => {
+        performSave(undefined, undefined, nextDecl);
+      }, 350);
+    },
+    [performSave]
+  );
+
+  const handlePreviewStep4File = useCallback(
+    async (slotKey: DocumentSlotKey, file: IdeaDocumentFile) => {
+      if (!draft) return;
+      setStep4PreviewError(null);
+      setPreviewingDocKey(slotKey);
+      try {
+        await openIdeaDocumentPreview(draft.id, draft.storageTarget, file);
+      } catch (err) {
+        setStep4PreviewError(
+          err instanceof Error ? err.message : 'Could not open file preview.'
+        );
+      } finally {
+        setPreviewingDocKey((prev) => (prev === slotKey ? null : prev));
+      }
+    },
+    [draft]
+  );
+
+  const handleStep4BackClick = async () => {
+    if (isBackingStep || isSubmittingFinal) return;
+    setIsBackingStep(true);
+    try {
+      if (isDirty) {
+        const savedOk = await performSave();
+        if (!savedOk) {
+          const proceed = window.confirm(
+            'Your latest changes could not be saved. Go back to Documents anyway?'
+          );
+          if (!proceed) return;
+        }
+      }
+      setCurrentRoute('/submit/documents');
+    } finally {
+      setIsBackingStep(false);
+    }
+  };
+
+  const handleStep4SubmitClick = () => {
+    if (isSubmittingFinal || isBackingStep) return;
+
+    if (!step4ReadyToSubmit) {
+      setHasAttemptedSubmitStep4(true);
+      setTouchedStep4Declaration(true);
+      setStep4LiveAnnouncement('Complete the highlighted items before submitting.');
+      if (
+        step1ValidForAside &&
+        step2Validation.isValid &&
+        step3Validation.isValid &&
+        !step4Declaration.accepted
+      ) {
+        step4DeclarationCheckboxRef.current?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center',
+        });
+        step4DeclarationCheckboxRef.current?.focus();
+      }
+      return;
+    }
+
+    setSubmitErrorMessage(null);
+    setIsConfirmDialogOpen(true);
+  };
+
+  const handleConfirmFinalSubmit = async () => {
+    if (!draft || isSubmittingFinalRef.current) return;
+    if (draft.status !== 'draft') {
+      setIsConfirmDialogOpen(false);
+      setCurrentRoute(`/submit/confirmation/${draft.id}`);
+      return;
+    }
+
+    isSubmittingFinalRef.current = true;
+    setIsSubmittingFinal(true);
+    setSubmitErrorMessage(null);
+
+    try {
+      const draftForSubmit: IdeaDraft = {
+        ...draft,
+        idea: {
+          ...(draft.idea ?? createEmptyIdeaDetails()),
+          declaration: step4DeclarationRef.current,
+        },
+      };
+      const submitted = await submitFinalIdeaApplication(draftForSubmit);
+      setIsDirty(false);
+      isDirtyRef.current = false;
+      setIsConfirmDialogOpen(false);
+      setStep4LiveAnnouncement('Application submitted.');
+      setCurrentRoute(`/submit/confirmation/${submitted.id}`);
+    } catch (err) {
+      setSubmitErrorMessage(
+        err instanceof Error
+          ? err.message
+          : 'Unable to submit your application right now. Please try again.'
+      );
+      isSubmittingFinalRef.current = false;
+      setIsSubmittingFinal(false);
     }
   };
 
@@ -710,7 +1388,11 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
     return 'Draft ready';
   }, [lastSavedAtMs, nowTickMs, saveStatus]);
 
-  const highestAllowedStep = Math.max(activeStep, draft?.currentStep || 1);
+  const highestAllowedStep = Math.max(
+    activeStep,
+    draft?.currentStep || 1,
+    step1ValidForAside && step2Validation.isValid && step3Validation.isValid ? 4 : 1
+  );
 
   const cipaValid = Boolean(applicant && isValidCipaNumber(applicant.business.cipaNumber));
   const tinValid = Boolean(applicant && isValidTin(applicant.business.tin));
@@ -751,7 +1433,7 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
             </p>
           </div>
 
-          {activeStep === 2 && !isLoading && !loadError && (
+          {activeStep >= 2 && activeStep <= 4 && !isLoading && !loadError && (
             <div
               role="status"
               aria-live="polite"
@@ -863,10 +1545,16 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
                     const isCompleted =
                       activeStep === 2
                         ? item.step === 1
+                        : activeStep === 3
+                        ? item.step < 3
+                        : activeStep === 4
+                        ? item.step < 4
                         : item.step < highestAllowedStep && item.step !== activeStep;
                     const isCurrent = item.step === activeStep;
                     const isFuture =
-                      activeStep === 2 ? item.step > 2 : item.step > highestAllowedStep;
+                      activeStep === 4
+                        ? false
+                        : item.step > highestAllowedStep;
                     const isClickable = !isCurrent && !isFuture;
 
                     return (
@@ -929,7 +1617,10 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
                           <li
                             aria-hidden="true"
                             className={`h-px flex-1 min-w-[16px] ${
-                              item.step < highestAllowedStep ? 'bg-[#a02010]/60' : 'bg-[#e2bfb8]/70'
+                              item.step < activeStep ||
+                              (activeStep < 4 && item.step < highestAllowedStep)
+                                ? 'bg-[#a02010]/60'
+                                : 'bg-[#e2bfb8]/70'
                             }`}
                           />
                         )}
@@ -945,16 +1636,18 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
             </nav>
 
             {/* Mobile Progress Bar Card Above Form (< lg) */}
-            <div className="lg:hidden bg-white rounded-2xl border border-[#e2bfb8]/70 p-4 shadow-2xs space-y-2.5">
+            <div className="lg:hidden bg-white rounded-2xl border border-[#e2bfb8]/70 p-4 shadow-2xs space-y-2">
               <div className="flex items-center justify-between text-xs">
-                <span className="font-bold text-[#1c1c19]">Your progress</span>
+                <span className="font-bold text-[#1c1c19]">
+                  {activeStep === 4 ? 'Submission summary' : 'Your progress'}
+                </span>
                 <span className="font-bold text-[#a02010] tabular-nums">
                   {progressPercentage}% complete
                 </span>
               </div>
               <div
                 role="progressbar"
-                aria-label={`Step ${activeStep} completion progress`}
+                aria-label="Application completion progress"
                 aria-valuenow={progressPercentage}
                 aria-valuemin={0}
                 aria-valuemax={100}
@@ -965,6 +1658,10 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
                   style={{ width: `${progressPercentage}%` }}
                 />
               </div>
+              <p className="text-[11px] text-[#6b4f47] tabular-nums">
+                {applicationProgress.completedTasks} of {applicationProgress.totalTasks} required
+                tasks completed
+              </p>
             </div>
 
             {/* Main 2-Column Content Grid */}
@@ -1063,7 +1760,13 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
                                 : 'bg-[#e5dad4] text-[#5a413c] border border-[#d6c2ba] cursor-not-allowed'
                             }`}
                           >
-                            <span>{isAdvancingStep ? 'Saving step...' : 'Next: Documents'}</span>
+                            <span>
+                              {isAdvancingStep
+                                ? 'Saving step...'
+                                : isReturningToReview && step3Validation.isValid
+                                ? 'Save & return to review'
+                                : 'Next: Documents'}
+                            </span>
                             <span className="material-symbols-outlined text-[16px]">
                               {isAdvancingStep ? 'hourglass_top' : 'arrow_forward'}
                             </span>
@@ -1081,50 +1784,271 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
                       </div>
                     </div>
                   </form>
-                ) : activeStep > 2 ? (
-                  /* Steps 3 to 4: Coming soon inside wizard layout */
-                  <section
-                    aria-labelledby="wizard-coming-soon-heading"
-                    className="bg-white rounded-2xl border border-[#e2bfb8]/70 shadow-2xs p-8 sm:p-12 flex flex-col items-center text-center"
+                ) : activeStep === 3 ? (
+                  /* STEP 3: DOCUMENTS UPLOAD FORM */
+                  <form
+                    noValidate
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      handleStep3NextClick();
+                    }}
+                    className="space-y-5"
                   >
-                    <div className="w-16 h-16 rounded-2xl bg-[#fbf3ef] border border-[#e2bfb8]/70 text-[#a02010] flex items-center justify-center mb-4">
-                      <span className="material-symbols-outlined text-[32px]">
-                        {activeStep === 3 ? 'upload_file' : 'fact_check'}
-                      </span>
+                    <Step3Documents
+                      applicantType={applicant.type}
+                      documents={documents}
+                      validation={step3Validation}
+                      touchedSlots={touchedStep3Slots}
+                      hasAttemptedNext={hasAttemptedNextStep3}
+                      activeUploads={activeUploads}
+                      slotErrors={slotErrors}
+                      previewingKey={previewingDocKey}
+                      saveStatus={saveStatus}
+                      saveErrorMessage={saveErrorMessage}
+                      liveAnnouncement={step3LiveAnnouncement}
+                      slotFocusRefs={step3SlotFocusRefs}
+                      onSelectFileForSlot={handleSelectFileForSlot}
+                      onRetrySlotFile={handleRetrySlotUpload}
+                      onPreviewFile={handlePreviewStep3File}
+                      onRemoveFile={handleRemoveStep3File}
+                      onUpdateLetterNote={handleUpdateLetterNote}
+                      onBlurLetterNote={triggerBlurAutosave}
+                      onBlurSlot={handleBlurStep3Slot}
+                      onRetrySave={handleSaveDraftClick}
+                      onAnnounce={setStep3LiveAnnouncement}
+                    />
+
+                    {/* Step 3 Footer Bar */}
+                    <div className="sticky bottom-[58px] lg:static z-20 bg-white rounded-2xl border border-[#e2bfb8]/70 shadow-sm lg:shadow-2xs px-4 sm:px-5 py-3.5 flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <button
+                          type="button"
+                          onClick={handleStep3BackClick}
+                          disabled={isBackingStep || isAdvancingStep}
+                          className="inline-flex items-center gap-1.5 h-10 px-3 rounded-xl border border-[#e2bfb8] bg-white hover:bg-[#f7f3ee] text-xs font-semibold text-[#38231d] transition-colors disabled:opacity-60"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">arrow_back</span>
+                          <span>
+                            {isBackingStep ? 'Saving...' : 'Back: Idea details'}
+                          </span>
+                        </button>
+
+                        <div className="flex items-center gap-1.5 text-[11px] text-[#6b4f47]">
+                          <span>{relativeSavedLabel}</span>
+                          {saveStatus === 'error' && (
+                            <button
+                              type="button"
+                              onClick={handleSaveDraftClick}
+                              className="font-bold text-[#a02010] hover:underline"
+                            >
+                              Retry
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2.5 ml-auto">
+                        <button
+                          type="button"
+                          onClick={handleSaveDraftClick}
+                          disabled={saveStatus === 'saving'}
+                          className="h-10 px-4 rounded-xl bg-[#f1ede8] hover:bg-[#e6e2dd] text-[#1c1c19] text-xs font-semibold transition-colors disabled:opacity-60"
+                        >
+                          Save as draft
+                        </button>
+
+                        <div
+                          className="relative"
+                          onMouseEnter={() => {
+                            if (!step3Validation.isValid) setNextButtonTooltipVisible(true);
+                          }}
+                          onMouseLeave={() => setNextButtonTooltipVisible(false)}
+                          onFocus={() => {
+                            if (!step3Validation.isValid) setNextButtonTooltipVisible(true);
+                          }}
+                          onBlur={() => setNextButtonTooltipVisible(false)}
+                        >
+                          <button
+                            type="submit"
+                            disabled={isAdvancingStep || isBackingStep || activeUploads.length > 0}
+                            aria-disabled={
+                              !step3Validation.isValid ||
+                              isAdvancingStep ||
+                              activeUploads.length > 0
+                            }
+                            title={
+                              !step3Validation.isValid
+                                ? 'Complete the required fields to continue'
+                                : undefined
+                            }
+                            className={`inline-flex items-center justify-center gap-2 h-10 px-5 rounded-xl text-xs font-semibold transition-colors shadow-xs ${
+                              isAdvancingStep
+                                ? 'bg-[#a02010]/80 text-white cursor-wait'
+                                : step3Validation.isValid && activeUploads.length === 0
+                                ? 'bg-[#a02010] hover:bg-[#7c0700] text-white cursor-pointer'
+                                : 'bg-[#e5dad4] text-[#5a413c] border border-[#d6c2ba] cursor-not-allowed'
+                            }`}
+                          >
+                            <span>
+                              {isAdvancingStep
+                                ? 'Saving step...'
+                                : isReturningToReview
+                                ? 'Save & return to review'
+                                : 'Next: Review and submit'}
+                            </span>
+                            <span className="material-symbols-outlined text-[16px]">
+                              {isAdvancingStep ? 'hourglass_top' : 'arrow_forward'}
+                            </span>
+                          </button>
+
+                          {!step3Validation.isValid && nextButtonTooltipVisible && (
+                            <div
+                              role="tooltip"
+                              className="absolute bottom-full right-0 mb-2 px-2.5 py-1.5 rounded-lg bg-[#1c1c19] text-white text-[11px] font-medium whitespace-nowrap shadow-lg z-30 pointer-events-none"
+                            >
+                              Complete the required fields to continue
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <span className="text-[11px] font-bold uppercase tracking-widest text-[#a02010] mb-1.5">
-                      Step {activeStep} of 4 · {SUBMITTER_WIZARD_STEPS[activeStep - 1]?.label}
-                    </span>
-                    <h2
-                      id="wizard-coming-soon-heading"
-                      className="font-headline text-xl font-bold text-[#1c1c19] mb-2"
-                    >
-                      Coming soon
-                    </h2>
-                    <p className="text-sm text-[#5a413c] max-w-md mb-6 leading-relaxed">
-                      Your <strong>Applicant details</strong> and <strong>Idea details</strong> are
-                      saved to your draft. The{' '}
-                      <strong>{SUBMITTER_WIZARD_STEPS[activeStep - 1]?.label}</strong> step is coming
-                      soon.
-                    </p>
-                    <div className="flex flex-wrap items-center justify-center gap-3">
-                      <button
-                        type="button"
-                        onClick={() => navigateSafely('/submit/idea')}
-                        className="inline-flex items-center justify-center gap-2 h-10 px-5 rounded-xl border border-[#e2bfb8] bg-white hover:bg-[#f7f3ee] text-[#38231d] text-xs font-semibold transition-colors"
-                      >
-                        <span className="material-symbols-outlined text-[16px]">arrow_back</span>
-                        <span>Back to Idea details</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => navigateSafely('/dashboard')}
-                        className="inline-flex items-center justify-center gap-2 h-10 px-5 rounded-xl bg-[#a02010] hover:bg-[#7c0700] text-white text-xs font-semibold transition-colors shadow-xs"
-                      >
-                        <span>Return to Dashboard</span>
-                      </button>
+                  </form>
+                ) : activeStep > 3 && idea ? (
+                  /* STEP 4: REVIEW AND SUBMIT */
+                  <form
+                    noValidate
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      handleStep4SubmitClick();
+                    }}
+                    className="space-y-5"
+                  >
+                    <Step4ReviewSubmit
+                      applicant={applicant}
+                      idea={idea}
+                      documents={documents}
+                      step1Valid={step1ValidForAside}
+                      step2Validation={step2Validation}
+                      step3Validation={step3Validation}
+                      declarationAccepted={step4Declaration.accepted}
+                      touchedDeclaration={touchedStep4Declaration}
+                      hasAttemptedSubmit={hasAttemptedSubmitStep4}
+                      preparationPct={progressPercentage}
+                      previewingKey={previewingDocKey}
+                      previewError={step4PreviewError}
+                      saveStatus={saveStatus}
+                      saveErrorMessage={saveErrorMessage}
+                      submitErrorMessage={submitErrorMessage}
+                      isConfirmDialogOpen={isConfirmDialogOpen}
+                      isSubmitting={isSubmittingFinal}
+                      liveAnnouncement={step4LiveAnnouncement}
+                      declarationCheckboxRef={step4DeclarationCheckboxRef}
+                      submitTriggerButtonRef={submitFinalButtonRef}
+                      onEditStep={handleEditFromReview}
+                      onPreviewFile={handlePreviewStep4File}
+                      onToggleDeclaration={handleToggleStep4Declaration}
+                      onRetrySave={handleSaveDraftClick}
+                      onCloseConfirmDialog={() => setIsConfirmDialogOpen(false)}
+                      onConfirmSubmit={handleConfirmFinalSubmit}
+                    />
+
+                    {/* Step 4 Footer Bar (sticky on mobile above bottom nav, card footer on desktop) */}
+                    <div className="sticky bottom-[58px] lg:static z-20 bg-white rounded-2xl border border-[#e2bfb8]/70 shadow-sm lg:shadow-2xs px-4 sm:px-5 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex flex-wrap items-center gap-3 min-w-0">
+                        <button
+                          type="button"
+                          onClick={handleStep4BackClick}
+                          disabled={isBackingStep || isSubmittingFinal}
+                          className="inline-flex items-center gap-1.5 h-10 px-3 rounded-xl border border-[#e2bfb8] bg-white hover:bg-[#f7f3ee] text-xs font-semibold text-[#38231d] transition-colors disabled:opacity-60"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">arrow_back</span>
+                          <span>
+                            {isBackingStep ? 'Saving...' : 'Back: Documents'}
+                          </span>
+                        </button>
+
+                        <div className="flex items-center gap-1.5 text-[11px] text-[#6b4f47]">
+                          <span>{relativeSavedLabel}</span>
+                          {saveStatus === 'error' && (
+                            <button
+                              type="button"
+                              onClick={handleSaveDraftClick}
+                              className="font-bold text-[#a02010] hover:underline"
+                            >
+                              Retry
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 sm:ml-auto w-full sm:w-auto">
+                        <button
+                          type="button"
+                          onClick={handleSaveDraftClick}
+                          disabled={saveStatus === 'saving' || isSubmittingFinal}
+                          className="h-10 px-4 rounded-xl bg-[#f1ede8] hover:bg-[#e6e2dd] text-[#1c1c19] text-xs font-semibold transition-colors disabled:opacity-60"
+                        >
+                          Save draft
+                        </button>
+
+                        <div
+                          className="relative flex-1 sm:flex-initial"
+                          onMouseEnter={() => {
+                            if (!step4ReadyToSubmit) setNextButtonTooltipVisible(true);
+                          }}
+                          onMouseLeave={() => setNextButtonTooltipVisible(false)}
+                          onFocus={() => {
+                            if (!step4ReadyToSubmit) setNextButtonTooltipVisible(true);
+                          }}
+                          onBlur={() => setNextButtonTooltipVisible(false)}
+                        >
+                          <button
+                            ref={submitFinalButtonRef}
+                            type="submit"
+                            disabled={isSubmittingFinal || isBackingStep}
+                            aria-disabled={!step4ReadyToSubmit || isSubmittingFinal}
+                            title={
+                              !step4ReadyToSubmit
+                                ? 'Complete the required fields to continue'
+                                : undefined
+                            }
+                            className={`w-full sm:w-auto inline-flex items-center justify-center gap-2 h-10 px-5 rounded-xl text-xs font-semibold transition-colors shadow-xs ${
+                              isSubmittingFinal
+                                ? 'bg-[#a02010]/80 text-white cursor-wait'
+                                : step4ReadyToSubmit
+                                ? 'bg-[#a02010] hover:bg-[#7c0700] text-white cursor-pointer'
+                                : 'bg-[#e5dad4] text-[#5a413c] border border-[#d6c2ba] cursor-not-allowed'
+                            }`}
+                          >
+                            {isSubmittingFinal ? (
+                              <span
+                                aria-hidden="true"
+                                className="w-3.5 h-3.5 rounded-full border-2 border-white/40 border-t-white animate-spin"
+                              />
+                            ) : (
+                              <span className="material-symbols-outlined text-[16px]">
+                                send
+                              </span>
+                            )}
+                            <span>
+                              {isSubmittingFinal
+                                ? 'Submitting...'
+                                : 'Submit final application'}
+                            </span>
+                          </button>
+
+                          {!step4ReadyToSubmit && nextButtonTooltipVisible && (
+                            <div
+                              role="tooltip"
+                              className="absolute bottom-full right-0 mb-2 px-2.5 py-1.5 rounded-lg bg-[#1c1c19] text-white text-[11px] font-medium whitespace-nowrap shadow-lg z-30 pointer-events-none"
+                            >
+                              Complete the required fields to continue
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  </section>
+                  </form>
                 ) : (
                   /* STEP 1: APPLICANT DETAILS FORM */
                   <form
@@ -2128,8 +3052,7 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
                           />
                           <div className="text-xs text-[#1c1c19] leading-relaxed">
                             <label htmlFor="wizard-declaration" className="cursor-pointer">
-                              I declare that I am a citizen of Botswana, or represent a 100%
-                              citizen-owned entity, and that the information I give is true.{' '}
+                              {DECLARATION_SUMMARY_TEXT}{' '}
                               <span className="text-[#a02010]">*</span>
                             </label>{' '}
                             <button
@@ -2221,7 +3144,15 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
                                 : 'bg-[#e5dad4] text-[#5a413c] border border-[#d6c2ba] cursor-not-allowed'
                             }`}
                           >
-                            <span>{isAdvancingStep ? 'Saving step...' : 'Next: Idea details'}</span>
+                            <span>
+                              {isAdvancingStep
+                                ? 'Saving step...'
+                                : isReturningToReview &&
+                                  step2Validation.isValid &&
+                                  step3Validation.isValid
+                                ? 'Save & return to review'
+                                : 'Next: Idea details'}
+                            </span>
                             <span className="material-symbols-outlined text-[16px]">
                               {isAdvancingStep ? 'hourglass_top' : 'arrow_forward'}
                             </span>
@@ -2260,18 +3191,26 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
                   </p>
                 </section>
 
-                {/* Your progress */}
+                {/* Your progress / Submission summary */}
                 <section className="bg-white rounded-2xl border border-[#e2bfb8]/70 shadow-2xs p-5 space-y-3.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <h2 className="font-headline text-sm font-bold text-[#1c1c19]">Your progress</h2>
-                    <span className="text-xs font-bold text-[#a02010] tabular-nums">
-                      {progressPercentage}% complete
-                    </span>
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <h2 className="font-headline text-sm font-bold text-[#1c1c19]">
+                        {activeStep === 4 ? 'Submission summary' : 'Your progress'}
+                      </h2>
+                      <span className="text-xs font-bold text-[#a02010] tabular-nums">
+                        {progressPercentage}% complete
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-[#6b4f47] tabular-nums">
+                      {applicationProgress.completedTasks} of {applicationProgress.totalTasks}{' '}
+                      required tasks completed
+                    </p>
                   </div>
 
                   <div
                     role="progressbar"
-                    aria-label={`Step ${activeStep} progress`}
+                    aria-label="Application completion progress"
                     aria-valuenow={progressPercentage}
                     aria-valuemin={0}
                     aria-valuemax={100}
@@ -2289,32 +3228,50 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
                         stepItem.step === 1
                           ? step1ValidForAside
                           : stepItem.step === 2
-                          ? activeStep > 2 && step2Validation.isValid
-                          : highestAllowedStep > stepItem.step;
+                          ? step2Validation.isValid
+                          : stepItem.step === 3
+                          ? step3Validation.isValid
+                          : step4Declaration.accepted;
                       const isCurrent = stepItem.step === activeStep;
 
                       let statusSubtext: string | null = null;
                       if (stepItem.step === 1) {
-                        if (activeStep === 1) {
-                          statusSubtext = validation.isValid
-                            ? 'Identity, Contact, Location completed'
-                            : `${validation.completedCount} of ${validation.totalRequired} required items filled`;
-                        } else {
-                          statusSubtext = step1ValidForAside ? 'Complete' : 'Incomplete';
-                        }
+                        statusSubtext = step1ValidForAside
+                          ? 'Complete'
+                          : `${applicationProgress.step1Completed}/${applicationProgress.step1Total} tasks`;
                       } else if (stepItem.step === 2) {
-                        if (activeStep === 2) {
-                          statusSubtext = step2Validation.isValid
-                            ? `${step2Validation.totalRequired} of ${step2Validation.totalRequired} filled`
-                            : `${step2Validation.completedCount} of ${step2Validation.totalRequired} filled`;
-                        } else if (activeStep > 2) {
-                          statusSubtext = step2Validation.isValid ? 'Complete' : 'Incomplete';
+                        if (step2Validation.isValid) {
+                          statusSubtext = 'Complete';
+                        } else if (step2Validation.completedCount > 0 || activeStep === 2) {
+                          statusSubtext = `${step2Validation.completedCount}/${step2Validation.totalRequired} tasks`;
                         } else {
                           statusSubtext = 'Upcoming';
                         }
-                      } else if (stepItem.step > activeStep) {
-                        statusSubtext = 'Upcoming';
+                      } else if (stepItem.step === 3) {
+                        if (step3Validation.isValid) {
+                          statusSubtext = '3/3 attached';
+                        } else if (
+                          step3Validation.attachedMandatoryCount > 0 ||
+                          activeStep === 3
+                        ) {
+                          statusSubtext = `${step3Validation.attachedMandatoryCount}/3 mandatory`;
+                        } else {
+                          statusSubtext = 'Upcoming';
+                        }
+                      } else if (stepItem.step === 4) {
+                        if (step4Declaration.accepted) {
+                          statusSubtext = 'Ready';
+                        } else if (activeStep === 4) {
+                          statusSubtext = 'Pending';
+                        } else {
+                          statusSubtext = 'Upcoming';
+                        }
                       }
+
+                      const asideLabel =
+                        activeStep === 4 && stepItem.step === 4
+                          ? 'Review and declaration'
+                          : stepItem.label;
 
                       return (
                         <li key={stepItem.key} className="flex items-start gap-2.5">
@@ -2332,7 +3289,7 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
                               <span className="material-symbols-outlined text-[11px]">check</span>
                             )}
                           </span>
-                          <div className="min-w-0">
+                          <div className="min-w-0 flex-1 flex items-baseline justify-between gap-2">
                             <span
                               className={`block ${
                                 isCurrent || isDone
@@ -2340,10 +3297,10 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
                                   : 'font-medium text-[#6b4f47]'
                               }`}
                             >
-                              {stepItem.label}
+                              {asideLabel}
                             </span>
                             {statusSubtext && (
-                              <span className="block text-[11px] text-[#6b4f47] mt-0.5">
+                              <span className="block text-[11px] text-[#6b4f47] shrink-0 text-right">
                                 {statusSubtext}
                               </span>
                             )}
@@ -2354,9 +3311,86 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
                   </ul>
                 </section>
 
-                {/* Need help? */}
+                {/* What happens next Card on Step 4 */}
+                {activeStep === 4 && (
+                  <section className="bg-white rounded-2xl border border-[#e2bfb8]/70 shadow-2xs p-5 space-y-3">
+                    <div className="flex items-center gap-2 text-[#1c1c19]">
+                      <span className="material-symbols-outlined text-[19px] text-[#a02010]">
+                        timeline
+                      </span>
+                      <h2 className="font-headline text-sm font-bold">What happens next</h2>
+                    </div>
+                    <ol className="space-y-3 text-xs">
+                      {SUBMITTER_WHAT_HAPPENS_NEXT.map((item) => (
+                        <li key={item.step} className="flex items-start gap-2.5">
+                          <span
+                            aria-hidden="true"
+                            className="w-5 h-5 rounded-full bg-[#fbf3ef] border border-[#e2bfb8] text-[#7c0700] text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5 tabular-nums"
+                          >
+                            {item.step}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="font-semibold text-[#1c1c19]">{item.title}</p>
+                            <p className="text-[11px] text-[#5a413c] leading-relaxed mt-0.5">
+                              {item.detail}
+                            </p>
+                          </div>
+                        </li>
+                      ))}
+                    </ol>
+                  </section>
+                )}
+
+                {/* Document tips card on Step 3 */}
+                {activeStep === 3 && (
+                  <section className="bg-white rounded-2xl border border-[#e2bfb8]/70 shadow-2xs p-5 space-y-3">
+                    <div className="flex items-center gap-2 text-[#1c1c19]">
+                      <span className="material-symbols-outlined text-[19px] text-[#a02010]">
+                        lightbulb
+                      </span>
+                      <h2 className="font-headline text-sm font-bold">Document tips</h2>
+                    </div>
+                    <ul className="space-y-2.5 text-xs text-[#5a413c]">
+                      {SUBMITTER_DOCUMENT_TIPS.map((tip) => (
+                        <li key={tip.id} className="leading-relaxed">
+                          <strong className="text-[#1c1c19] font-semibold">
+                            {tip.title}:
+                          </strong>{' '}
+                          <span>{tip.detail}</span>
+                          {tip.url && (
+                            <a
+                              href={tip.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="block mt-1 font-semibold text-[#a02010] hover:underline"
+                            >
+                              {tip.linkLabel || 'View guide'}
+                            </a>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+
+                {/* Writing Tip Card on Step 2 */}
+                {activeStep === 2 && (
+                  <section className="bg-[#fbf3ef] rounded-2xl border border-[#e2bfb8]/80 shadow-2xs p-5 space-y-2">
+                    <div className="flex items-center gap-2 text-[#7c0700]">
+                      <span className="material-symbols-outlined text-[19px]">tips_and_updates</span>
+                      <h2 className="font-headline text-sm font-bold text-[#1c1c19]">Tip</h2>
+                    </div>
+                    <p className="text-xs text-[#5a413c] leading-relaxed">
+                      {SUBMITTER_WRITING_TIP}
+                    </p>
+                  </section>
+                )}
+
+                {/* Need assistance? */}
                 <section className="bg-white rounded-2xl border border-[#e2bfb8]/70 shadow-2xs p-5 space-y-3">
-                  <h2 className="font-headline text-sm font-bold text-[#1c1c19]">Need help?</h2>
+                  <h2 className="font-headline text-sm font-bold text-[#1c1c19]">
+                    Need assistance?
+                  </h2>
 
                   <div className="space-y-2 text-xs text-[#5a413c]">
                     <div className="flex items-start gap-2.5">
@@ -2404,19 +3438,6 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
                     </div>
                   </div>
                 </section>
-
-                {/* Writing Tip Card on Step 2 */}
-                {activeStep === 2 && (
-                  <section className="bg-[#fbf3ef] rounded-2xl border border-[#e2bfb8]/80 shadow-2xs p-5 space-y-2">
-                    <div className="flex items-center gap-2 text-[#7c0700]">
-                      <span className="material-symbols-outlined text-[19px]">tips_and_updates</span>
-                      <h2 className="font-headline text-sm font-bold text-[#1c1c19]">Tip</h2>
-                    </div>
-                    <p className="text-xs text-[#5a413c] leading-relaxed">
-                      {SUBMITTER_WRITING_TIP}
-                    </p>
-                  </section>
-                )}
               </aside>
             </div>
           </>
