@@ -318,18 +318,27 @@ function mapDocToSubmitterIdea(
   const location = explicitLoc || [town, district].filter(Boolean).join(', ') || 'Botswana';
   const rawAmount = Number(raw.requestedAmountBwp ?? raw.requestedCapital ?? raw.fundingRequested);
 
+  const rawIdea =
+    raw.idea && typeof raw.idea === 'object' ? (raw.idea as Record<string, unknown>) : undefined;
+  const resolvedTitle =
+    (typeof rawIdea?.title === 'string' && rawIdea.title.trim()) ||
+    (typeof raw.title === 'string' && raw.title.trim()) ||
+    (typeof raw.ideaTitle === 'string' && raw.ideaTitle.trim()) ||
+    'Untitled innovation proposal';
+  const resolvedSector =
+    (typeof rawIdea?.sector === 'string' && rawIdea.sector.trim()) ||
+    (typeof raw.sector === 'string' && raw.sector.trim()) ||
+    'General Innovation';
+
   return {
     id: docId,
     submitterId: String(raw.submitterId || uid),
-    title:
-      (typeof raw.title === 'string' && raw.title.trim()) ||
-      (typeof raw.ideaTitle === 'string' && raw.ideaTitle.trim()) ||
-      'Untitled innovation proposal',
+    title: resolvedTitle,
     reference:
       (typeof raw.reference === 'string' && raw.reference.trim()) ||
       (typeof raw.trackingCode === 'string' && raw.trackingCode.trim()) ||
       docId.slice(0, 12).toUpperCase(),
-    sector: (typeof raw.sector === 'string' && raw.sector.trim()) || 'General Innovation',
+    sector: resolvedSector,
     location,
     status,
     stageStep: inferStageStep(raw.currentStage ?? raw.stage, status),
@@ -534,12 +543,50 @@ export interface WizardApplicantDetails {
 
 export type DraftStorageTarget = 'ideas' | 'submissions' | 'local';
 
+export type InnovationType =
+  | 'new_to_botswana'
+  | 'incremental_upgrade'
+  | 'import_substitution';
+
+export interface WizardIdeaDetails {
+  title: string;
+  sector: string;
+  subSector: string;
+  problem: string;
+  solution: string;
+  beneficiaries: string;
+  innovationType: InnovationType | '';
+  trl: number | null;
+  ipStatus: string;
+  jobsEstimate: number | null;
+  impactMetric: string;
+  demographics: string[];
+}
+
+export function createEmptyIdeaDetails(): WizardIdeaDetails {
+  return {
+    title: '',
+    sector: '',
+    subSector: '',
+    problem: '',
+    solution: '',
+    beneficiaries: '',
+    innovationType: '',
+    trl: null,
+    ipStatus: '',
+    jobsEstimate: null,
+    impactMetric: '',
+    demographics: [],
+  };
+}
+
 export interface IdeaDraft {
   id: string;
   submitterId: string;
   status: 'draft' | 'submitted';
   currentStep: number;
   applicant: WizardApplicantDetails;
+  idea?: WizardIdeaDetails;
   createdAt: string;
   updatedAt: string;
   storageTarget?: DraftStorageTarget;
@@ -626,6 +673,47 @@ export function hasVerifiedIdentityProfile(profile: UserProfile | null): boolean
   return hasName && hasOmang && hasDob;
 }
 
+export function isStep1ApplicantValid(
+  applicant: WizardApplicantDetails | null | undefined,
+  profile: UserProfile | null
+): boolean {
+  if (!applicant) return false;
+
+  const hasValidIdentity = hasVerifiedIdentityProfile(profile) || (
+    applicant.firstName.trim().length >= 2 &&
+    applicant.surname.trim().length >= 2 &&
+    (isValidOmangDigits(profile?.omangOrPassport || '') ||
+      isValidOmangDigits(applicant.omang) ||
+      /^•{6}\d{3}$/.test(applicant.omang.trim())) &&
+    Boolean(applicant.dateOfBirth.trim()) &&
+    !Number.isNaN(new Date(applicant.dateOfBirth.trim()).getTime()) &&
+    new Date(applicant.dateOfBirth.trim()).getTime() < Date.now()
+  );
+
+  if (!hasValidIdentity) return false;
+
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(applicant.email.trim());
+  const phoneOk = isValidBotswanaMobile(applicant.phone);
+  const districtOk = Boolean(applicant.district.trim());
+  const townOk = applicant.town.trim().length >= 2;
+  const addressOk = applicant.address.trim().length >= 5;
+
+  if (!emailOk || !phoneOk || !districtOk || !townOk || !addressOk) {
+    return false;
+  }
+
+  if (applicant.type === 'business') {
+    const tradingOk = applicant.business.tradingName.trim().length >= 2;
+    const cipaOk = /^[A-Za-z0-9][A-Za-z0-9/-]{4,24}$/.test(
+      applicant.business.cipaNumber.trim()
+    );
+    const tinOk = /^[A-Za-z0-9][A-Za-z0-9-]{5,19}$/.test(applicant.business.tin.trim());
+    if (!tradingOk || !cipaOk || !tinOk) return false;
+  }
+
+  return Boolean(applicant.declarationAccepted);
+}
+
 export function buildApplicantPrefillFromProfile(profile: UserProfile | null): WizardApplicantDetails {
   const extended = (profile || {}) as UserProfile & { gender?: string; address?: string };
   return {
@@ -675,15 +763,17 @@ function syncDraftIntoLocalIdeasSummary(draft: IdeaDraft): void {
     const existing: SubmitterIdea[] = raw ? (JSON.parse(raw) as SubmitterIdea[]) : [...DEFAULT_DEMO_IDEAS];
     const idx = existing.findIndex((item) => item.id === draft.id);
     const title =
-      draft.applicant.type === 'business' && draft.applicant.business.tradingName.trim()
+      draft.idea?.title?.trim() ||
+      (draft.applicant.type === 'business' && draft.applicant.business.tradingName.trim()
         ? `${draft.applicant.business.tradingName.trim()} Proposal (Draft)`
-        : 'New Innovation Proposal (Draft)';
+        : 'New Innovation Proposal (Draft)');
+    const sector = draft.idea?.sector?.trim() || 'General Innovation';
     const summary: SubmitterIdea = {
       id: draft.id,
       submitterId: draft.submitterId,
       title,
       reference: draft.id.slice(0, 12).toUpperCase(),
-      sector: 'General Innovation',
+      sector,
       location: [draft.applicant.town, draft.applicant.district].filter(Boolean).join(', ') || 'Botswana',
       status: draft.status,
       stageStep: 1,
@@ -702,6 +792,56 @@ function syncDraftIntoLocalIdeasSummary(draft: IdeaDraft): void {
   } catch {
     // ignore storage errors
   }
+}
+
+export function normalizeDraftIdea(rawIdea?: Record<string, unknown>): WizardIdeaDetails {
+  const empty = createEmptyIdeaDetails();
+  if (!rawIdea || typeof rawIdea !== 'object') return empty;
+
+  const rawInnovationType = rawIdea.innovationType;
+  const innovationType: InnovationType | '' =
+    rawInnovationType === 'new_to_botswana' ||
+    rawInnovationType === 'incremental_upgrade' ||
+    rawInnovationType === 'import_substitution'
+      ? rawInnovationType
+      : '';
+
+  const parsedTrl =
+    rawIdea.trl !== null && rawIdea.trl !== undefined && rawIdea.trl !== ''
+      ? Number(rawIdea.trl)
+      : NaN;
+  const trl =
+    Number.isInteger(parsedTrl) && parsedTrl >= 1 && parsedTrl <= 9 ? parsedTrl : null;
+
+  const parsedJobs =
+    rawIdea.jobsEstimate !== null &&
+    rawIdea.jobsEstimate !== undefined &&
+    rawIdea.jobsEstimate !== ''
+      ? Number(rawIdea.jobsEstimate)
+      : NaN;
+  const jobsEstimate =
+    Number.isInteger(parsedJobs) && parsedJobs >= 0 && parsedJobs <= 10000
+      ? parsedJobs
+      : null;
+
+  const demographics = Array.isArray(rawIdea.demographics)
+    ? rawIdea.demographics.filter((d): d is string => typeof d === 'string' && Boolean(d.trim()))
+    : [];
+
+  return {
+    title: typeof rawIdea.title === 'string' ? rawIdea.title : '',
+    sector: typeof rawIdea.sector === 'string' ? rawIdea.sector : '',
+    subSector: typeof rawIdea.subSector === 'string' ? rawIdea.subSector : '',
+    problem: typeof rawIdea.problem === 'string' ? rawIdea.problem : '',
+    solution: typeof rawIdea.solution === 'string' ? rawIdea.solution : '',
+    beneficiaries: typeof rawIdea.beneficiaries === 'string' ? rawIdea.beneficiaries : '',
+    innovationType,
+    trl,
+    ipStatus: typeof rawIdea.ipStatus === 'string' ? rawIdea.ipStatus : '',
+    jobsEstimate,
+    impactMetric: typeof rawIdea.impactMetric === 'string' ? rawIdea.impactMetric : '',
+    demographics,
+  };
 }
 
 function normalizeDraftApplicant(
@@ -824,10 +964,10 @@ function buildFirestoreSubmissionDraftPayload(
   };
 }
 
-export async function findOrCreateIdeaDraft(
+export async function findExistingIdeaDraft(
   uid: string,
   profile: UserProfile | null
-): Promise<IdeaDraft> {
+): Promise<IdeaDraft | null> {
   const prefill = buildApplicantPrefillFromProfile(profile);
   const nowIso = new Date().toISOString();
 
@@ -849,6 +989,7 @@ export async function findOrCreateIdeaDraft(
               raw.applicant as Record<string, unknown> | undefined,
               prefill
             ),
+            idea: normalizeDraftIdea(raw.idea as Record<string, unknown> | undefined),
             createdAt: normalizeTimestamp(raw.createdAt) || nowIso,
             updatedAt: normalizeTimestamp(raw.updatedAt) || nowIso,
             storageTarget: 'ideas',
@@ -863,30 +1004,14 @@ export async function findOrCreateIdeaDraft(
         writeLocalDrafts([latest, ...allLocal]);
         return latest;
       }
-
-      const newDocRef = doc(collection(db, 'ideas'));
-      const newDraft: IdeaDraft = {
-        id: newDocRef.id,
-        submitterId: uid,
-        status: 'draft',
-        currentStep: 1,
-        applicant: prefill,
-        createdAt: nowIso,
-        updatedAt: nowIso,
-        storageTarget: 'ideas',
-      };
-      await setDoc(newDocRef, buildFirestoreIdeaPayload(newDraft, nowIso));
-      const allLocal = readLocalDrafts().filter((d) => d.id !== newDraft.id);
-      writeLocalDrafts([newDraft, ...allLocal]);
-      return newDraft;
     } catch (err) {
       if (!isPermissionDeniedError(err)) {
-        throw err instanceof Error ? err : new Error('Unable to load or create draft.');
+        throw err instanceof Error ? err : new Error('Unable to load your draft.');
       }
       logFirestorePermissionWarning(err, 'list', 'ideas');
     }
 
-    // 2. Fallback Firestore collection: `submissions` (when `ideas` rules are not yet published)
+    // 2. Fallback Firestore collection: `submissions`
     try {
       const subSnap = await getDocs(
         query(collection(db, 'submissions'), where('submitterId', '==', uid))
@@ -905,6 +1030,7 @@ export async function findOrCreateIdeaDraft(
               raw.applicant as Record<string, unknown> | undefined,
               prefill
             ),
+            idea: normalizeDraftIdea(raw.idea as Record<string, unknown> | undefined),
             createdAt: normalizeTimestamp(raw.createdAt) || nowIso,
             updatedAt: normalizeTimestamp(raw.updatedAt) || nowIso,
             storageTarget: 'submissions',
@@ -919,7 +1045,70 @@ export async function findOrCreateIdeaDraft(
         writeLocalDrafts([latest, ...allLocal]);
         return latest;
       }
+    } catch (subErr) {
+      if (!isPermissionDeniedError(subErr)) {
+        throw subErr instanceof Error ? subErr : new Error('Unable to load your draft.');
+      }
+      logFirestorePermissionWarning(subErr, 'list', 'submissions');
+    }
+  }
 
+  // 3. Local fallback drafts
+  const localDrafts = readLocalDrafts();
+  const existing = localDrafts
+    .filter((d) => d.submitterId === uid && d.status === 'draft')
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0];
+
+  if (!existing) return null;
+
+  return {
+    ...existing,
+    storageTarget: existing.storageTarget || 'local',
+    applicant: normalizeDraftApplicant(
+      existing.applicant as unknown as Record<string, unknown>,
+      prefill
+    ),
+    idea: normalizeDraftIdea(existing.idea as unknown as Record<string, unknown> | undefined),
+  };
+}
+
+export async function findOrCreateIdeaDraft(
+  uid: string,
+  profile: UserProfile | null
+): Promise<IdeaDraft> {
+  const existing = await findExistingIdeaDraft(uid, profile);
+  if (existing) return existing;
+
+  const prefill = buildApplicantPrefillFromProfile(profile);
+  const emptyIdea = createEmptyIdeaDetails();
+  const nowIso = new Date().toISOString();
+
+  if (canQueryFirestoreForUser(uid)) {
+    try {
+      const newDocRef = doc(collection(db, 'ideas'));
+      const newDraft: IdeaDraft = {
+        id: newDocRef.id,
+        submitterId: uid,
+        status: 'draft',
+        currentStep: 1,
+        applicant: prefill,
+        idea: emptyIdea,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        storageTarget: 'ideas',
+      };
+      await setDoc(newDocRef, buildFirestoreIdeaPayload(newDraft, nowIso));
+      const allLocal = readLocalDrafts().filter((d) => d.id !== newDraft.id);
+      writeLocalDrafts([newDraft, ...allLocal]);
+      return newDraft;
+    } catch (err) {
+      if (!isPermissionDeniedError(err)) {
+        throw err instanceof Error ? err : new Error('Unable to load or create draft.');
+      }
+      logFirestorePermissionWarning(err, 'list', 'ideas');
+    }
+
+    try {
       const newSubRef = doc(collection(db, 'submissions'));
       const newSubDraft: IdeaDraft = {
         id: newSubRef.id,
@@ -927,6 +1116,7 @@ export async function findOrCreateIdeaDraft(
         status: 'draft',
         currentStep: 1,
         applicant: prefill,
+        idea: emptyIdea,
         createdAt: nowIso,
         updatedAt: nowIso,
         storageTarget: 'submissions',
@@ -943,30 +1133,14 @@ export async function findOrCreateIdeaDraft(
     }
   }
 
-  // 3. Local fallback draft store (offline/demo or unconfigured Firestore rules)
   const localDrafts = readLocalDrafts();
-  const existing = localDrafts
-    .filter((d) => d.submitterId === uid && d.status === 'draft')
-    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0];
-
-  if (existing) {
-    const normalized: IdeaDraft = {
-      ...existing,
-      storageTarget: 'local',
-      applicant: normalizeDraftApplicant(
-        existing.applicant as unknown as Record<string, unknown>,
-        prefill
-      ),
-    };
-    return normalized;
-  }
-
   const created: IdeaDraft = {
     id: `draft-${uid.slice(-6)}-${Date.now()}`,
     submitterId: uid,
     status: 'draft',
     currentStep: 1,
     applicant: prefill,
+    idea: emptyIdea,
     createdAt: nowIso,
     updatedAt: nowIso,
     storageTarget: 'local',
@@ -1097,6 +1271,98 @@ export async function saveIdeaDraft(
       } catch (subErr) {
         if (!isPermissionDeniedError(subErr)) {
           throw subErr instanceof Error ? subErr : new Error('Could not save draft.');
+        }
+        logFirestorePermissionWarning(subErr, 'list', 'submissions');
+        updatedDraft.storageTarget = 'local';
+      }
+    }
+  } else {
+    updatedDraft.storageTarget = 'local';
+  }
+
+  const others = readLocalDrafts().filter((d) => d.id !== updatedDraft.id);
+  writeLocalDrafts([updatedDraft, ...others]);
+  syncDraftIntoLocalIdeasSummary(updatedDraft);
+
+  return updatedDraft;
+}
+
+export async function saveIdeaStep2(
+  draft: IdeaDraft,
+  ideaInput: WizardIdeaDetails,
+  nextStep: number
+): Promise<IdeaDraft> {
+  const nowIso = new Date().toISOString();
+  const cleanTrl =
+    ideaInput.trl !== null &&
+    Number.isInteger(ideaInput.trl) &&
+    ideaInput.trl >= 1 &&
+    ideaInput.trl <= 9
+      ? ideaInput.trl
+      : null;
+  const cleanJobs =
+    ideaInput.jobsEstimate !== null &&
+    Number.isInteger(ideaInput.jobsEstimate) &&
+    ideaInput.jobsEstimate >= 0 &&
+    ideaInput.jobsEstimate <= 10000
+      ? ideaInput.jobsEstimate
+      : null;
+
+  const sanitizedIdea: WizardIdeaDetails = {
+    title: ideaInput.title.slice(0, 120),
+    sector: ideaInput.sector.trim(),
+    subSector: ideaInput.subSector.trim(),
+    problem: ideaInput.problem.slice(0, 1000),
+    solution: ideaInput.solution.slice(0, 1000),
+    beneficiaries: ideaInput.beneficiaries.slice(0, 500),
+    innovationType: ideaInput.innovationType,
+    trl: cleanTrl,
+    ipStatus: ideaInput.ipStatus.trim(),
+    jobsEstimate: cleanJobs,
+    impactMetric: ideaInput.impactMetric.trim(),
+    demographics: Array.from(new Set(ideaInput.demographics.filter(Boolean))),
+  };
+
+  const resolvedStep = Math.max(1, Math.min(4, nextStep));
+  const updatedDraft: IdeaDraft = {
+    ...draft,
+    status: 'draft',
+    currentStep: resolvedStep,
+    idea: sanitizedIdea,
+    updatedAt: nowIso,
+  };
+
+  // Write ONLY `idea`, `currentStep`, and `updatedAt` so `applicant` remains untouched
+  const step2Payload: Record<string, unknown> = {
+    idea: sanitizedIdea,
+    currentStep: resolvedStep,
+    updatedAt: nowIso,
+  };
+
+  if (canQueryFirestoreForUser(draft.submitterId)) {
+    let savedToCloud = false;
+
+    if (updatedDraft.storageTarget !== 'submissions') {
+      try {
+        await setDoc(doc(db, 'ideas', draft.id), step2Payload, { merge: true });
+        updatedDraft.storageTarget = 'ideas';
+        savedToCloud = true;
+      } catch (err) {
+        if (!isPermissionDeniedError(err)) {
+          throw err instanceof Error ? err : new Error('Could not save idea details.');
+        }
+        logFirestorePermissionWarning(err, 'list', 'ideas');
+      }
+    }
+
+    if (!savedToCloud) {
+      try {
+        await setDoc(doc(db, 'submissions', draft.id), step2Payload, { merge: true });
+        updatedDraft.storageTarget = 'submissions';
+        savedToCloud = true;
+      } catch (subErr) {
+        if (!isPermissionDeniedError(subErr)) {
+          throw subErr instanceof Error ? subErr : new Error('Could not save idea details.');
         }
         logFirestorePermissionWarning(subErr, 'list', 'submissions');
         updatedDraft.storageTarget = 'local';

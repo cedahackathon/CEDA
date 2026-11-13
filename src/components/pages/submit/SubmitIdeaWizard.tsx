@@ -12,15 +12,19 @@ import {
   STATUTORY_DECLARATION_TEXT,
   SUBMITTER_SUPPORT_CONFIG,
   SUBMITTER_WIZARD_STEPS,
+  SUBMITTER_WRITING_TIP,
 } from '../../../data/submitterMock';
 import { SubmitterLayout } from '../../submitter/SubmitterLayout';
 import {
+  createEmptyIdeaDetails,
+  findExistingIdeaDraft,
   findOrCreateIdeaDraft,
   formatBotswanaPhoneDisplay,
   formatLongDateBotswana,
   formatRelativeSavedTime,
   hasVerifiedIdentityProfile,
   IdeaDraft,
+  isStep1ApplicantValid,
   isValidBotswanaMobile,
   isValidOmangDigits,
   loadUserProfileForWizard,
@@ -28,11 +32,19 @@ import {
   normalizeBotswanaPhoneInput,
   ProfileIdentityUpdate,
   saveIdeaDraft,
+  saveIdeaStep2,
   WizardApplicantDetails,
   WizardApplicantType,
+  WizardIdeaDetails,
   WizardTeamMember,
 } from '../../../services/submitterService';
 import { UserProfile } from '../../../types/auth';
+import {
+  parseWholeJobsInput,
+  Step2FieldKey,
+  Step2IdeaDetails,
+  validateStep2Idea,
+} from './Step2IdeaDetails';
 
 interface SubmitIdeaWizardProps {
   routePath: string;
@@ -95,6 +107,8 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
   const [draft, setDraft] = useState<IdeaDraft | null>(null);
   const [applicant, setApplicant] = useState<WizardApplicantDetails | null>(null);
   const [rawOmangInput, setRawOmangInput] = useState('');
+  const [idea, setIdea] = useState<WizardIdeaDetails | null>(null);
+  const [jobsRawInput, setJobsRawInput] = useState('');
 
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -104,6 +118,7 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
   const [isAdvancingStep, setIsAdvancingStep] = useState(false);
+  const [isBackingStep, setIsBackingStep] = useState(false);
   const [lastSavedAtMs, setLastSavedAtMs] = useState<number | null>(null);
   const [nowTickMs, setNowTickMs] = useState<number>(() => Date.now());
 
@@ -112,6 +127,8 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
   const [isDeclarationExpanded, setIsDeclarationExpanded] = useState(false);
   const [touched, setTouched] = useState<Partial<Record<FieldKey, boolean>>>({});
   const [hasAttemptedNext, setHasAttemptedNext] = useState(false);
+  const [touchedStep2, setTouchedStep2] = useState<Partial<Record<Step2FieldKey, boolean>>>({});
+  const [hasAttemptedNextStep2, setHasAttemptedNextStep2] = useState(false);
   const [nextButtonTooltipVisible, setNextButtonTooltipVisible] = useState(false);
 
   // Team inline add row
@@ -130,6 +147,7 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
   const blurSaveTimerRef = useRef<number | null>(null);
   const inFlightSavePromiseRef = useRef<Promise<boolean> | null>(null);
   const fieldRefs = useRef<Partial<Record<FieldKey, HTMLElement | null>>>({});
+  const step2FieldRefs = useRef<Partial<Record<Step2FieldKey, HTMLElement | null>>>({});
 
   const hasVerifiedIdentity = useMemo(
     () => hasVerifiedIdentityProfile(profile),
@@ -147,7 +165,27 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
     setLoadError(null);
     try {
       const loadedProfile = await loadUserProfileForWizard(activeUid, currentUser);
-      const loadedDraft = await findOrCreateIdeaDraft(activeUid, loadedProfile);
+      const loadedDraft =
+        activeStep === 1
+          ? await findOrCreateIdeaDraft(activeUid, loadedProfile)
+          : await findExistingIdeaDraft(activeUid, loadedProfile);
+
+      if (activeStep >= 2) {
+        if (
+          !loadedDraft ||
+          !isStep1ApplicantValid(loadedDraft.applicant, loadedProfile)
+        ) {
+          setCurrentRoute('/submit/applicant');
+          return;
+        }
+      }
+
+      if (!loadedDraft) {
+        setLoadError('Unable to locate your application draft.');
+        return;
+      }
+
+      const hydratedIdea = loadedDraft.idea ?? createEmptyIdeaDetails();
 
       setProfile(loadedProfile);
       setDraft(loadedDraft);
@@ -155,7 +193,15 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
       setRawOmangInput(
         hasVerifiedIdentityProfile(loadedProfile) ? '' : loadedProfile?.omangOrPassport || ''
       );
+      setIdea(hydratedIdea);
+      setJobsRawInput(
+        hydratedIdea.jobsEstimate !== null ? String(hydratedIdea.jobsEstimate) : ''
+      );
       setIsBusinessAccordionOpen(loadedDraft.applicant.type === 'business');
+      setTouched({});
+      setHasAttemptedNext(false);
+      setTouchedStep2({});
+      setHasAttemptedNextStep2(false);
 
       const updatedMs = new Date(loadedDraft.updatedAt).getTime();
       setLastSavedAtMs(!Number.isNaN(updatedMs) ? updatedMs : Date.now());
@@ -168,7 +214,7 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
     } finally {
       setIsLoading(false);
     }
-  }, [activeUid, currentUser]);
+  }, [activeStep, activeUid, currentUser, setCurrentRoute]);
 
   useEffect(() => {
     loadWizardData();
@@ -305,14 +351,28 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
     };
   }, [applicant, hasVerifiedIdentity, rawOmangInput]);
 
+  const step2Validation = useMemo(
+    () => validateStep2Idea(idea, jobsRawInput),
+    [idea, jobsRawInput]
+  );
+
+  const step1ValidForAside = useMemo(
+    () => isStep1ApplicantValid(applicant, profile) || validation.isValid,
+    [applicant, profile, validation.isValid]
+  );
+
   const progressPercentage = useMemo(() => {
-    if (validation.totalRequired === 0) return 0;
-    return Math.round((validation.completedCount / validation.totalRequired) * 100);
-  }, [validation]);
+    const activeVal = activeStep === 2 ? step2Validation : validation;
+    if (activeVal.totalRequired === 0) return 0;
+    return Math.round((activeVal.completedCount / activeVal.totalRequired) * 100);
+  }, [activeStep, step2Validation, validation]);
 
   const performSave = useCallback(
     async (targetStepOverride?: number): Promise<boolean> => {
-      if (!draft || !applicant) return false;
+      if (!draft) return false;
+      if (activeStep === 1 && !applicant) return false;
+      if (activeStep === 2 && !idea) return false;
+      if (activeStep > 2) return true;
 
       if (blurSaveTimerRef.current) {
         window.clearTimeout(blurSaveTimerRef.current);
@@ -331,6 +391,19 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
         setSaveErrorMessage(null);
 
         try {
+          if (activeStep === 2 && idea) {
+            const nextStep = targetStepOverride ?? Math.max(draft.currentStep || 2, 2);
+            const savedDraft = await saveIdeaStep2(draft, idea, nextStep);
+            setDraft(savedDraft);
+            setLastSavedAtMs(Date.now());
+            setNowTickMs(Date.now());
+            setSaveStatus('saved');
+            setIsDirty(false);
+            return true;
+          }
+
+          if (!applicant) return false;
+
           const nextStep = targetStepOverride ?? draft.currentStep ?? 1;
           const profileUpdate: ProfileIdentityUpdate = {};
 
@@ -376,17 +449,17 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
       inFlightSavePromiseRef.current = promise;
       return promise;
     },
-    [applicant, draft, hasVerifiedIdentity, profile, rawOmangInput]
+    [activeStep, applicant, draft, hasVerifiedIdentity, idea, profile, rawOmangInput]
   );
 
   // Autosave every 10 seconds when changed (debounced)
   useEffect(() => {
-    if (!isDirty || activeStep !== 1) return;
+    if (!isDirty || (activeStep !== 1 && activeStep !== 2)) return;
     const timer = window.setTimeout(() => {
       performSave();
     }, 10_000);
     return () => window.clearTimeout(timer);
-  }, [isDirty, applicant, rawOmangInput, activeStep, performSave]);
+  }, [isDirty, applicant, rawOmangInput, idea, jobsRawInput, activeStep, performSave]);
 
   const triggerBlurAutosave = useCallback(() => {
     if (!isDirty) return;
@@ -437,9 +510,39 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
     []
   );
 
+  const updateIdea = useCallback(
+    (updater: (prev: WizardIdeaDetails) => WizardIdeaDetails) => {
+      setIdea((prev) => {
+        if (!prev) return prev;
+        return updater(prev);
+      });
+      setIsDirty(true);
+    },
+    []
+  );
+
+  const handleJobsRawInputChange = useCallback(
+    (raw: string) => {
+      setJobsRawInput(raw);
+      const parsed = parseWholeJobsInput(raw);
+      updateIdea((prev) => ({
+        ...prev,
+        jobsEstimate: parsed.valid ? parsed.parsed : null,
+      }));
+    },
+    [updateIdea]
+  );
+
   const handleFieldBlur = (key?: FieldKey) => {
     if (key) {
       setTouched((prev) => ({ ...prev, [key]: true }));
+    }
+    triggerBlurAutosave();
+  };
+
+  const handleStep2FieldBlur = (key?: Step2FieldKey) => {
+    if (key) {
+      setTouchedStep2((prev) => ({ ...prev, [key]: true }));
     }
     triggerBlurAutosave();
   };
@@ -528,6 +631,57 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
     }
   };
 
+  const handleStep2BackClick = async () => {
+    if (isBackingStep || isAdvancingStep) return;
+    setIsBackingStep(true);
+    try {
+      if (isDirty) {
+        const savedOk = await performSave();
+        if (!savedOk) {
+          const proceed = window.confirm(
+            'Your latest changes could not be saved. Go back to Applicant details anyway?'
+          );
+          if (!proceed) return;
+        }
+      }
+      setCurrentRoute('/submit/applicant');
+    } finally {
+      setIsBackingStep(false);
+    }
+  };
+
+  const handleStep2NextClick = async () => {
+    if (isAdvancingStep || isBackingStep) return;
+
+    if (!step2Validation.isValid) {
+      setHasAttemptedNextStep2(true);
+      const allTouched: Partial<Record<Step2FieldKey, boolean>> = {};
+      step2Validation.errorKeys.forEach((k) => {
+        allTouched[k] = true;
+      });
+      setTouchedStep2((prev) => ({ ...prev, ...allTouched }));
+
+      const firstKey = step2Validation.errorKeys[0];
+      const firstEl = firstKey ? step2FieldRefs.current[firstKey] : null;
+      if (firstEl) {
+        firstEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        firstEl.focus();
+      }
+      return;
+    }
+
+    setIsAdvancingStep(true);
+    try {
+      const nextStep = Math.max(draft?.currentStep || 2, 3);
+      const savedOk = await performSave(nextStep);
+      if (savedOk) {
+        setCurrentRoute('/submit/documents');
+      }
+    } finally {
+      setIsAdvancingStep(false);
+    }
+  };
+
   const shouldShowError = (key: FieldKey): boolean => {
     return Boolean((touched[key] || hasAttemptedNext) && validation.errors[key]);
   };
@@ -586,14 +740,48 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
           <span className="font-semibold text-[#1c1c19]">Step {activeStep}</span>
         </nav>
 
-        {/* Page Title */}
-        <div>
-          <h1 className="font-headline text-2xl sm:text-[28px] font-bold text-[#38231d] tracking-tight">
-            Submit an idea
-          </h1>
-          <p className="text-xs sm:text-sm text-[#5a413c] mt-1">
-            Four short steps. Your progress is saved as you go.
-          </p>
+        {/* Page Title & Auto-save Chip */}
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="font-headline text-2xl sm:text-[28px] font-bold text-[#38231d] tracking-tight">
+              Submit an idea
+            </h1>
+            <p className="text-xs sm:text-sm text-[#5a413c] mt-1">
+              Four short steps. Your progress is saved as you go.
+            </p>
+          </div>
+
+          {activeStep === 2 && !isLoading && !loadError && (
+            <div
+              role="status"
+              aria-live="polite"
+              className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-semibold shrink-0 ${
+                saveStatus === 'error'
+                  ? 'bg-[#ffdad6]/60 border-[#ba1a1a]/40 text-[#7c0700]'
+                  : saveStatus === 'saving'
+                  ? 'bg-[#fbf3ef] border-[#e2bfb8] text-[#5a413c]'
+                  : 'bg-white border-[#e2bfb8]/80 text-[#38231d]'
+              }`}
+            >
+              <span
+                aria-hidden="true"
+                className={`w-2 h-2 rounded-full ${
+                  saveStatus === 'error'
+                    ? 'bg-[#ba1a1a]'
+                    : saveStatus === 'saving'
+                    ? 'bg-[#f8a018] animate-pulse'
+                    : 'bg-[#2e7d32]'
+                }`}
+              />
+              <span>
+                {saveStatus === 'saving'
+                  ? 'Saving...'
+                  : saveStatus === 'error'
+                  ? 'Could not save'
+                  : 'Auto-save active'}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Loading Skeleton */}
@@ -672,9 +860,13 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
               <div className="hidden sm:flex items-center justify-between gap-4">
                 <ol className="flex items-center flex-1 gap-2 min-w-0">
                   {SUBMITTER_WIZARD_STEPS.map((item, idx) => {
-                    const isCompleted = item.step < highestAllowedStep && item.step !== activeStep;
+                    const isCompleted =
+                      activeStep === 2
+                        ? item.step === 1
+                        : item.step < highestAllowedStep && item.step !== activeStep;
                     const isCurrent = item.step === activeStep;
-                    const isFuture = item.step > highestAllowedStep;
+                    const isFuture =
+                      activeStep === 2 ? item.step > 2 : item.step > highestAllowedStep;
                     const isClickable = !isCurrent && !isFuture;
 
                     return (
@@ -762,7 +954,7 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
               </div>
               <div
                 role="progressbar"
-                aria-label="Step 1 completion progress"
+                aria-label={`Step ${activeStep} completion progress`}
                 aria-valuenow={progressPercentage}
                 aria-valuemin={0}
                 aria-valuemax={100}
@@ -779,19 +971,125 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
               {/* Left Column (8 cols) */}
               <div className="lg:col-span-8 space-y-5">
-                {activeStep > 1 ? (
-                  /* Steps 2 to 4: Coming soon inside wizard layout */
+                {activeStep === 2 && idea ? (
+                  /* STEP 2: IDEA DETAILS FORM */
+                  <form
+                    noValidate
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      handleStep2NextClick();
+                    }}
+                    className="space-y-5"
+                  >
+                    <Step2IdeaDetails
+                      idea={idea}
+                      jobsRawInput={jobsRawInput}
+                      validation={step2Validation}
+                      touched={touchedStep2}
+                      hasAttemptedNext={hasAttemptedNextStep2}
+                      saveStatus={saveStatus}
+                      saveErrorMessage={saveErrorMessage}
+                      fieldRefs={step2FieldRefs}
+                      onUpdateIdea={updateIdea}
+                      onChangeJobsRawInput={handleJobsRawInputChange}
+                      onBlurField={handleStep2FieldBlur}
+                      onRetrySave={handleSaveDraftClick}
+                    />
+
+                    {/* Step 2 Footer Bar (sticky on mobile above bottom nav, card footer on desktop) */}
+                    <div className="sticky bottom-[58px] lg:static z-20 bg-white rounded-2xl border border-[#e2bfb8]/70 shadow-sm lg:shadow-2xs px-4 sm:px-5 py-3.5 flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <button
+                          type="button"
+                          onClick={handleStep2BackClick}
+                          disabled={isBackingStep || isAdvancingStep}
+                          className="inline-flex items-center gap-1.5 h-10 px-3 rounded-xl border border-[#e2bfb8] bg-white hover:bg-[#f7f3ee] text-xs font-semibold text-[#38231d] transition-colors disabled:opacity-60"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">arrow_back</span>
+                          <span>
+                            {isBackingStep ? 'Saving...' : 'Back: Applicant details'}
+                          </span>
+                        </button>
+
+                        <div className="flex items-center gap-1.5 text-[11px] text-[#6b4f47]">
+                          <span>{relativeSavedLabel}</span>
+                          {saveStatus === 'error' && (
+                            <button
+                              type="button"
+                              onClick={handleSaveDraftClick}
+                              className="font-bold text-[#a02010] hover:underline"
+                            >
+                              Retry
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2.5 ml-auto">
+                        <button
+                          type="button"
+                          onClick={handleSaveDraftClick}
+                          disabled={saveStatus === 'saving'}
+                          className="h-10 px-4 rounded-xl bg-[#f1ede8] hover:bg-[#e6e2dd] text-[#1c1c19] text-xs font-semibold transition-colors disabled:opacity-60"
+                        >
+                          Save as draft
+                        </button>
+
+                        <div
+                          className="relative"
+                          onMouseEnter={() => {
+                            if (!step2Validation.isValid) setNextButtonTooltipVisible(true);
+                          }}
+                          onMouseLeave={() => setNextButtonTooltipVisible(false)}
+                          onFocus={() => {
+                            if (!step2Validation.isValid) setNextButtonTooltipVisible(true);
+                          }}
+                          onBlur={() => setNextButtonTooltipVisible(false)}
+                        >
+                          <button
+                            type="submit"
+                            disabled={isAdvancingStep || isBackingStep}
+                            aria-disabled={!step2Validation.isValid || isAdvancingStep}
+                            title={
+                              !step2Validation.isValid
+                                ? 'Complete the required fields to continue'
+                                : undefined
+                            }
+                            className={`inline-flex items-center justify-center gap-2 h-10 px-5 rounded-xl text-xs font-semibold transition-colors shadow-xs ${
+                              isAdvancingStep
+                                ? 'bg-[#a02010]/80 text-white cursor-wait'
+                                : step2Validation.isValid
+                                ? 'bg-[#a02010] hover:bg-[#7c0700] text-white cursor-pointer'
+                                : 'bg-[#e5dad4] text-[#5a413c] border border-[#d6c2ba] cursor-not-allowed'
+                            }`}
+                          >
+                            <span>{isAdvancingStep ? 'Saving step...' : 'Next: Documents'}</span>
+                            <span className="material-symbols-outlined text-[16px]">
+                              {isAdvancingStep ? 'hourglass_top' : 'arrow_forward'}
+                            </span>
+                          </button>
+
+                          {!step2Validation.isValid && nextButtonTooltipVisible && (
+                            <div
+                              role="tooltip"
+                              className="absolute bottom-full right-0 mb-2 px-2.5 py-1.5 rounded-lg bg-[#1c1c19] text-white text-[11px] font-medium whitespace-nowrap shadow-lg z-30 pointer-events-none"
+                            >
+                              Complete the required fields to continue
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </form>
+                ) : activeStep > 2 ? (
+                  /* Steps 3 to 4: Coming soon inside wizard layout */
                   <section
                     aria-labelledby="wizard-coming-soon-heading"
                     className="bg-white rounded-2xl border border-[#e2bfb8]/70 shadow-2xs p-8 sm:p-12 flex flex-col items-center text-center"
                   >
                     <div className="w-16 h-16 rounded-2xl bg-[#fbf3ef] border border-[#e2bfb8]/70 text-[#a02010] flex items-center justify-center mb-4">
                       <span className="material-symbols-outlined text-[32px]">
-                        {activeStep === 2
-                          ? 'lightbulb'
-                          : activeStep === 3
-                          ? 'upload_file'
-                          : 'fact_check'}
+                        {activeStep === 3 ? 'upload_file' : 'fact_check'}
                       </span>
                     </div>
                     <span className="text-[11px] font-bold uppercase tracking-widest text-[#a02010] mb-1.5">
@@ -804,18 +1102,19 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
                       Coming soon
                     </h2>
                     <p className="text-sm text-[#5a413c] max-w-md mb-6 leading-relaxed">
-                      Your <strong>Applicant details</strong> from Step 1 are saved to your draft.
-                      The <strong>{SUBMITTER_WIZARD_STEPS[activeStep - 1]?.label}</strong> step is
-                      coming soon.
+                      Your <strong>Applicant details</strong> and <strong>Idea details</strong> are
+                      saved to your draft. The{' '}
+                      <strong>{SUBMITTER_WIZARD_STEPS[activeStep - 1]?.label}</strong> step is coming
+                      soon.
                     </p>
                     <div className="flex flex-wrap items-center justify-center gap-3">
                       <button
                         type="button"
-                        onClick={() => navigateSafely('/submit/applicant')}
+                        onClick={() => navigateSafely('/submit/idea')}
                         className="inline-flex items-center justify-center gap-2 h-10 px-5 rounded-xl border border-[#e2bfb8] bg-white hover:bg-[#f7f3ee] text-[#38231d] text-xs font-semibold transition-colors"
                       >
                         <span className="material-symbols-outlined text-[16px]">arrow_back</span>
-                        <span>Back to Applicant details</span>
+                        <span>Back to Idea details</span>
                       </button>
                       <button
                         type="button"
@@ -1957,8 +2256,7 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
                     <h2 className="font-headline text-sm font-bold">Your idea is protected</h2>
                   </div>
                   <p className="text-xs text-[#5a413c] leading-relaxed">
-                    Only assigned CEDA reviewers see your submission under non-disclosure terms.
-                    Data is handled under the Botswana Data Protection Act (BDPA).
+                    Only assigned CEDA reviewers can see your submission.
                   </p>
                 </section>
 
@@ -1973,7 +2271,7 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
 
                   <div
                     role="progressbar"
-                    aria-label="Step 1 progress"
+                    aria-label={`Step ${activeStep} progress`}
                     aria-valuenow={progressPercentage}
                     aria-valuemin={0}
                     aria-valuemax={100}
@@ -1989,9 +2287,34 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
                     {SUBMITTER_WIZARD_STEPS.map((stepItem) => {
                       const isDone =
                         stepItem.step === 1
-                          ? validation.isValid || highestAllowedStep > 1
+                          ? step1ValidForAside
+                          : stepItem.step === 2
+                          ? activeStep > 2 && step2Validation.isValid
                           : highestAllowedStep > stepItem.step;
                       const isCurrent = stepItem.step === activeStep;
+
+                      let statusSubtext: string | null = null;
+                      if (stepItem.step === 1) {
+                        if (activeStep === 1) {
+                          statusSubtext = validation.isValid
+                            ? 'Identity, Contact, Location completed'
+                            : `${validation.completedCount} of ${validation.totalRequired} required items filled`;
+                        } else {
+                          statusSubtext = step1ValidForAside ? 'Complete' : 'Incomplete';
+                        }
+                      } else if (stepItem.step === 2) {
+                        if (activeStep === 2) {
+                          statusSubtext = step2Validation.isValid
+                            ? `${step2Validation.totalRequired} of ${step2Validation.totalRequired} filled`
+                            : `${step2Validation.completedCount} of ${step2Validation.totalRequired} filled`;
+                        } else if (activeStep > 2) {
+                          statusSubtext = step2Validation.isValid ? 'Complete' : 'Incomplete';
+                        } else {
+                          statusSubtext = 'Upcoming';
+                        }
+                      } else if (stepItem.step > activeStep) {
+                        statusSubtext = 'Upcoming';
+                      }
 
                       return (
                         <li key={stepItem.key} className="flex items-start gap-2.5">
@@ -2019,11 +2342,9 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
                             >
                               {stepItem.label}
                             </span>
-                            {stepItem.step === 1 && (
+                            {statusSubtext && (
                               <span className="block text-[11px] text-[#6b4f47] mt-0.5">
-                                {validation.isValid
-                                  ? 'Identity, Contact, Location completed'
-                                  : `${validation.completedCount} of ${validation.totalRequired} required items filled`}
+                                {statusSubtext}
                               </span>
                             )}
                           </div>
@@ -2083,6 +2404,19 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
                     </div>
                   </div>
                 </section>
+
+                {/* Writing Tip Card on Step 2 */}
+                {activeStep === 2 && (
+                  <section className="bg-[#fbf3ef] rounded-2xl border border-[#e2bfb8]/80 shadow-2xs p-5 space-y-2">
+                    <div className="flex items-center gap-2 text-[#7c0700]">
+                      <span className="material-symbols-outlined text-[19px]">tips_and_updates</span>
+                      <h2 className="font-headline text-sm font-bold text-[#1c1c19]">Tip</h2>
+                    </div>
+                    <p className="text-xs text-[#5a413c] leading-relaxed">
+                      {SUBMITTER_WRITING_TIP}
+                    </p>
+                  </section>
+                )}
               </aside>
             </div>
           </>

@@ -116,16 +116,26 @@ export const DEFAULT_OPEN_CALL: OpenCallData = {
   guidelinesRoute: '/guidelines',
 };
 
+const CHAT_START_HOUR = 9;
+const CHAT_END_HOUR = 16;
+
+function formatHour24(hour: number): string {
+  return `${String(hour).padStart(2, '0')}:00`;
+}
+
 export const SUBMITTER_SUPPORT_CONFIG: SupportConfig = {
   branchCount: 14,
   advisoryCopy: 'Advisors across our 14 branches can help with your submission.',
-  chatStartHour: 9,
-  chatEndHour: 16,
-  chatHoursLabel: 'Chat hours: 09:00 to 16:00, working days (CAT)',
+  chatStartHour: CHAT_START_HOUR,
+  chatEndHour: CHAT_END_HOUR,
+  chatHoursLabel: `${formatHour24(CHAT_START_HOUR)} to ${formatHour24(CHAT_END_HOUR)}, Mon–Fri`,
   chatUnavailableLabel: 'Agent not available at the moment',
   hotline: '1800 2332',
   email: 'enquiries@ceda.co.bw',
 };
+
+export const SUBMITTER_WRITING_TIP =
+  'Be specific and concrete: explain the local problem in measurable terms, how your solution works in practice, and who directly benefits.';
 
 export const SUBMITTER_ONBOARDING_STEPS: OnboardingStep[] = [
   {

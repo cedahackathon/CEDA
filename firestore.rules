@@ -156,6 +156,18 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    function isValidIdeaDetails(data) {
+      return !('idea' in data)
+        || (
+          data.idea is map
+          && (!('title' in data.idea) || (data.idea.title is string && data.idea.title.size() <= 120))
+          && (!('problem' in data.idea) || (data.idea.problem is string && data.idea.problem.size() <= 1000))
+          && (!('solution' in data.idea) || (data.idea.solution is string && data.idea.solution.size() <= 1000))
+          && (!('beneficiaries' in data.idea) || (data.idea.beneficiaries is string && data.idea.beneficiaries.size() <= 500))
+          && (!('trl' in data.idea) || data.idea.trl == null || (data.idea.trl is int && data.idea.trl >= 1 && data.idea.trl <= 9))
+        );
+    }
+
     // 7. Submitter Ideas collection
     match /ideas/{ideaId} {
       allow read: if isSignedIn() && (
@@ -168,7 +180,8 @@ service cloud.firestore {
 
       allow create: if isSignedIn()
         && request.resource.data.submitterId == request.auth.uid
-        && request.resource.data.status in ['draft', 'submitted'];
+        && request.resource.data.status in ['draft', 'submitted']
+        && isValidIdeaDetails(request.resource.data);
 
       allow update: if isSignedIn() && (
         (
@@ -176,6 +189,7 @@ service cloud.firestore {
           && resource.data.status == 'draft'
           && request.resource.data.submitterId == resource.data.submitterId
           && request.resource.data.status in ['draft', 'submitted']
+          && isValidIdeaDetails(request.resource.data)
         )
         || isAdmin()
         || hasRole('EVALUATOR')

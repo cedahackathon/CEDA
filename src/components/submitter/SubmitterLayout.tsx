@@ -366,7 +366,7 @@ export const SubmitterLayout: React.FC<SubmitterLayoutProps> = ({
               </div>
               <p className="text-xs font-bold text-[#1c1c19]">Finance. Develop. Sustain.</p>
               <p className="text-[11px] text-[#6b4f47] leading-relaxed">
-                Statutory portal protected under the Botswana Data Protection Act (BDPA).
+                Citizen Entrepreneurial Development Agency innovation submissions portal.
               </p>
             </div>
           </div>
@@ -478,7 +478,7 @@ export const SubmitterLayout: React.FC<SubmitterLayoutProps> = ({
                 </div>
                 <p className="text-xs font-bold text-[#1c1c19]">Finance. Develop. Sustain.</p>
                 <p className="text-[11px] text-[#6b4f47] leading-relaxed">
-                  Statutory portal protected under the Botswana Data Protection Act (BDPA).
+                  Citizen Entrepreneurial Development Agency innovation submissions portal.
                 </p>
               </div>
             </div>
