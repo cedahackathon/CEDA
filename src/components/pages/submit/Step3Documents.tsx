@@ -9,7 +9,7 @@ import {
   DOCUMENT_ACCEPTED_ATTR,
   DOCUMENT_FORMAT_LABEL,
   DOCUMENT_MAX_FILES_PER_IDEA,
-  DOCUMENT_MAX_FILE_SIZE_KB,
+  DOCUMENT_MAX_FILE_SIZE_MB,
   DOCUMENT_SLOTS,
   DocumentSlotConfig,
   DocumentSlotKey,
@@ -86,6 +86,7 @@ interface Step3DocumentsProps {
   touchedSlots: Partial<Record<DocumentSlotKey, boolean>>;
   hasAttemptedNext: boolean;
   activeUploads: ActiveDocumentUpload[];
+  removingDocKeys?: Record<string, boolean>;
   slotErrors: Partial<Record<DocumentSlotKey, string>>;
   previewingKey: string | null;
   saveStatus: 'idle' | 'saving' | 'saved' | 'error';
@@ -114,6 +115,7 @@ export const Step3Documents: React.FC<Step3DocumentsProps> = ({
   touchedSlots,
   hasAttemptedNext,
   activeUploads,
+  removingDocKeys = {},
   slotErrors,
   previewingKey,
   saveStatus,
@@ -318,6 +320,8 @@ export const Step3Documents: React.FC<Step3DocumentsProps> = ({
 
     const isCipaRecommended = slot.key === 'cipa' && applicantType === 'business';
 
+    const isRemovingSingle = !isLetters && Boolean(removingDocKeys[slot.key]);
+
     const renderStatusChip = () => {
       if (slotUploads.length > 0) {
         return (
@@ -325,7 +329,18 @@ export const Step3Documents: React.FC<Step3DocumentsProps> = ({
             <span className="material-symbols-outlined text-[14px] animate-spin">
               progress_activity
             </span>
-            <span>Saving...</span>
+            <span>Uploading...</span>
+          </span>
+        );
+      }
+
+      if (isRemovingSingle) {
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#fbf3ef] border border-[#e2bfb8] text-[11px] font-semibold text-[#7c0700]">
+            <span className="material-symbols-outlined text-[14px] animate-spin">
+              progress_activity
+            </span>
+            <span>Removing...</span>
           </span>
         );
       }
@@ -456,7 +471,7 @@ export const Step3Documents: React.FC<Step3DocumentsProps> = ({
                   {upload.fileName}
                 </p>
                 <p className="text-[11px] font-medium text-[#7c0700]">
-                  Saving...
+                  Uploading document...
                 </p>
               </div>
             </div>
@@ -496,7 +511,7 @@ export const Step3Documents: React.FC<Step3DocumentsProps> = ({
               <div className="flex items-center gap-3 text-xs font-semibold shrink-0 self-end sm:self-center">
                 <button
                   type="button"
-                  disabled={previewingKey === slot.key}
+                  disabled={previewingKey === slot.key || isRemovingSingle}
                   onClick={() => onPreviewFile(slot.key, singleFile)}
                   className="inline-flex items-center gap-1 text-[#5a413c] hover:text-[#1c1c19] transition-colors disabled:opacity-60"
                 >
@@ -512,7 +527,7 @@ export const Step3Documents: React.FC<Step3DocumentsProps> = ({
 
                 <button
                   type="button"
-                  disabled={slotUploads.length > 0}
+                  disabled={slotUploads.length > 0 || isRemovingSingle}
                   onClick={() => openSlotFileDialog(slot.key, singleFile.fileId)}
                   className="inline-flex items-center gap-1 text-[#5a413c] hover:text-[#a02010] transition-colors disabled:opacity-50"
                 >
@@ -528,13 +543,19 @@ export const Step3Documents: React.FC<Step3DocumentsProps> = ({
 
                 <button
                   type="button"
+                  disabled={slotUploads.length > 0 || isRemovingSingle}
                   onClick={() => onRemoveFile(slot.key)}
-                  className="inline-flex items-center gap-1 text-[#ba1a1a] hover:text-[#7c0700] transition-colors"
+                  className="inline-flex items-center gap-1 text-[#ba1a1a] hover:text-[#7c0700] transition-colors disabled:opacity-60"
                 >
-                  <span aria-hidden="true" className="material-symbols-outlined text-[15px]">
-                    delete
+                  <span
+                    aria-hidden="true"
+                    className={`material-symbols-outlined text-[15px] ${
+                      isRemovingSingle ? 'animate-spin' : ''
+                    }`}
+                  >
+                    {isRemovingSingle ? 'progress_activity' : 'delete'}
                   </span>
-                  <span>Remove</span>
+                  <span>{isRemovingSingle ? 'Removing...' : 'Remove'}</span>
                 </button>
               </div>
             </div>
@@ -618,6 +639,7 @@ export const Step3Documents: React.FC<Step3DocumentsProps> = ({
             {lettersFiles.map((letter, idx) => {
               const previewId = `letters-${idx}`;
               const noteInputId = `letter-note-${idx}`;
+              const isRemovingLetter = Boolean(removingDocKeys[previewId]);
               return (
                 <div
                   key={`${letter.fileId}-${idx}`}
@@ -647,7 +669,7 @@ export const Step3Documents: React.FC<Step3DocumentsProps> = ({
                     <div className="flex items-center gap-3 text-xs font-semibold shrink-0 self-end sm:self-center">
                       <button
                         type="button"
-                        disabled={previewingKey === previewId}
+                        disabled={previewingKey === previewId || isRemovingLetter}
                         onClick={() => onPreviewFile(previewId, letter)}
                         className="inline-flex items-center gap-1 text-[#5a413c] hover:text-[#1c1c19] transition-colors disabled:opacity-60"
                       >
@@ -661,13 +683,19 @@ export const Step3Documents: React.FC<Step3DocumentsProps> = ({
                       </span>
                       <button
                         type="button"
+                        disabled={isRemovingLetter || slotUploads.length > 0}
                         onClick={() => onRemoveFile('letters', idx)}
-                        className="inline-flex items-center gap-1 text-[#ba1a1a] hover:text-[#7c0700] transition-colors"
+                        className="inline-flex items-center gap-1 text-[#ba1a1a] hover:text-[#7c0700] transition-colors disabled:opacity-60"
                       >
-                        <span aria-hidden="true" className="material-symbols-outlined text-[15px]">
-                          delete
+                        <span
+                          aria-hidden="true"
+                          className={`material-symbols-outlined text-[15px] ${
+                            isRemovingLetter ? 'animate-spin' : ''
+                          }`}
+                        >
+                          {isRemovingLetter ? 'progress_activity' : 'delete'}
                         </span>
-                        <span>Remove</span>
+                        <span>{isRemovingLetter ? 'Removing...' : 'Remove'}</span>
                       </button>
                     </div>
                   </div>
@@ -763,7 +791,7 @@ export const Step3Documents: React.FC<Step3DocumentsProps> = ({
           </h2>
           <p className="text-xs text-[#6b4f47] mt-0.5 leading-relaxed">
             Upload your identity document and project files. Accepted formats:{' '}
-            {DOCUMENT_FORMAT_LABEL} (max {DOCUMENT_MAX_FILE_SIZE_KB} KB per file,{' '}
+            {DOCUMENT_FORMAT_LABEL} (max {DOCUMENT_MAX_FILE_SIZE_MB} MB per file,{' '}
             {DOCUMENT_MAX_FILES_PER_IDEA} files per application).
           </p>
         </div>
@@ -875,7 +903,7 @@ export const Step3Documents: React.FC<Step3DocumentsProps> = ({
             Drag and drop documents here, or browse files
           </p>
           <p className="text-[11px] text-[#6b4f47] mt-1">
-            {DOCUMENT_FORMAT_LABEL} up to {DOCUMENT_MAX_FILE_SIZE_KB} KB each. Dropped files let you
+            {DOCUMENT_FORMAT_LABEL} up to {DOCUMENT_MAX_FILE_SIZE_MB} MB each. Dropped files let you
             pick which document slot they belong to, or use each slot below directly.
           </p>
 
@@ -894,7 +922,7 @@ export const Step3Documents: React.FC<Step3DocumentsProps> = ({
         </div>
 
         <p className="text-xs font-medium text-[#5a413c]">
-          Files are limited to {DOCUMENT_MAX_FILE_SIZE_KB} KB each.
+          Files are limited to {DOCUMENT_MAX_FILE_SIZE_MB} MB each.
         </p>
 
         {/* Unassigned Pending Files Picker (never auto-assigned) */}
@@ -969,7 +997,7 @@ export const Step3Documents: React.FC<Step3DocumentsProps> = ({
                           onClick={() => handleConfirmPendingUpload(item)}
                           className="h-9 px-3.5 rounded-lg bg-[#a02010] hover:bg-[#7c0700] text-white text-xs font-semibold transition-colors disabled:opacity-60"
                         >
-                          {uploadingPendingIds[item.id] ? 'Saving...' : 'Upload'}
+                          {uploadingPendingIds[item.id] ? 'Uploading...' : 'Upload'}
                         </button>
 
                         <button

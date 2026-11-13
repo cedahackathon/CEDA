@@ -459,5 +459,70 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow write: if isAdmin(database);
     }
+
+    function isValidDocumentId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[-a-zA-Z0-9_]+$');
+    }
+
+    function isValidDocumentRecord(docData, documentId) {
+      return docData is map
+        && docData.keys().hasAll(['id', 'name', 'storagePath', 'publicUrl', 'size', 'type', 'uploaderId', 'createdAt'])
+        && docData.keys().hasOnly(['id', 'name', 'storagePath', 'publicUrl', 'size', 'type', 'uploaderId', 'createdAt', 'ideaId', 'docType', 'note'])
+        && docData.id is string && docData.id == documentId
+        && docData.name is string && docData.name.size() > 0 && docData.name.size() <= 255
+        && docData.storagePath is string && docData.storagePath.size() > 0 && docData.storagePath.size() <= 512
+        && !docData.storagePath.matches('.*\\.\\..*')
+        && docData.publicUrl is string && docData.publicUrl.size() > 0 && docData.publicUrl.size() <= 2048
+        && docData.publicUrl.matches('^https?://.*$')
+        && docData.size is int && docData.size > 0 && docData.size <= 10485760
+        && docData.type in [
+          'application/pdf',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'image/jpeg',
+          'image/png'
+        ]
+        && docData.uploaderId is string && docData.uploaderId.size() > 0 && docData.uploaderId.size() <= 128
+        && docData.createdAt is timestamp
+        && (!('ideaId' in docData) || (docData.ideaId is string && docData.ideaId.size() > 0 && docData.ideaId.size() <= 128 && docData.ideaId.matches('^[-a-zA-Z0-9_]+$')))
+        && (!('docType' in docData) || docData.docType in ['omang', 'conceptNote', 'budget', 'proofOfResidence', 'cipa', 'letters'])
+        && (!('note' in docData) || (docData.note is string && docData.note.size() <= 200));
+    }
+
+    // 10. Documents metadata collection (backed by Supabase Storage bucket `documents`)
+    match /documents/{documentId} {
+      allow get: if isSignedIn() && isValidDocumentId(documentId) && (
+        resource.data.uploaderId == request.auth.uid
+        || isAdmin(database)
+        || hasRole(database, 'EVALUATOR')
+        || hasRole(database, 'ADJUDICATOR')
+        || hasRole(database, 'STAKEHOLDER')
+      );
+
+      allow list: if isSignedIn() && resource.data.uploaderId == request.auth.uid;
+
+      allow create: if isSignedIn()
+        && isValidDocumentId(documentId)
+        && isValidDocumentRecord(request.resource.data, documentId)
+        && request.resource.data.uploaderId == request.auth.uid
+        && request.resource.data.createdAt == request.time;
+
+      allow update: if isSignedIn()
+        && isValidDocumentId(documentId)
+        && isValidDocumentRecord(request.resource.data, documentId)
+        && request.resource.data.uploaderId == resource.data.uploaderId
+        && request.resource.data.createdAt == resource.data.createdAt
+        && (
+          (
+            resource.data.uploaderId == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['note'])
+          )
+          || isAdmin(database)
+        );
+
+      allow delete: if isSignedIn() && isValidDocumentId(documentId) && (
+        resource.data.uploaderId == request.auth.uid
+        || isAdmin(database)
+      );
+    }
   }
 }

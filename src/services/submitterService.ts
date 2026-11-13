@@ -25,10 +25,16 @@ import {
   DOCUMENT_ACCEPTED_MIME_TYPES,
   DOCUMENT_MAX_FILES_PER_IDEA,
   DOCUMENT_MAX_FILE_SIZE_BYTES,
-  DOCUMENT_MAX_FILE_SIZE_KB,
+  DOCUMENT_MAX_FILE_SIZE_MB,
   DocumentSlotKey,
   MAX_SUPPORT_LETTERS,
 } from '../data/documentOptions';
+import {
+  deleteDocumentFromSupabaseAndFirestore,
+  getDocumentPublicUrlFromFirestore,
+  updateDocumentNoteInFirestore,
+  uploadDocumentToSupabaseAndFirestore,
+} from './documentStorageService';
 import { DEFAULT_OPEN_CALL, OpenCallData } from '../data/submitterMock';
 import { UserProfile } from '../types/auth';
 
@@ -706,9 +712,13 @@ export type InnovationType =
 
 export interface IdeaDocumentFile {
   fileId: string;
+  documentId?: string;
   name: string;
   size: number;
   contentType: string;
+  storagePath?: string;
+  publicUrl?: string;
+  uploaderId?: string;
   uploadedAt: string;
   note?: string;
 }
@@ -1001,12 +1011,32 @@ function normalizeSingleDocumentFile(raw: unknown): IdeaDocumentFile | null {
     normalizeTimestamp(obj.uploadedAt) || new Date().toISOString();
   const note =
     typeof obj.note === 'string' && obj.note.trim() ? obj.note.trim().slice(0, 200) : undefined;
+  const documentId =
+    typeof obj.documentId === 'string' && obj.documentId.trim()
+      ? obj.documentId.trim()
+      : undefined;
+  const storagePath =
+    typeof obj.storagePath === 'string' && obj.storagePath.trim()
+      ? obj.storagePath.trim()
+      : undefined;
+  const publicUrl =
+    typeof obj.publicUrl === 'string' && obj.publicUrl.trim()
+      ? obj.publicUrl.trim()
+      : undefined;
+  const uploaderId =
+    typeof obj.uploaderId === 'string' && obj.uploaderId.trim()
+      ? obj.uploaderId.trim()
+      : undefined;
 
   return {
     fileId,
+    ...(documentId ? { documentId } : {}),
     name,
     size,
     contentType,
+    ...(storagePath ? { storagePath } : {}),
+    ...(publicUrl ? { publicUrl } : {}),
+    ...(uploaderId ? { uploaderId } : {}),
     uploadedAt,
     ...(note ? { note } : {}),
   };
@@ -1821,162 +1851,16 @@ export function validateDocumentFileForSlot(
     }
   }
 
-  const isImage = contentType === 'image/jpeg' || contentType === 'image/png';
-  if (!isImage && file.size > DOCUMENT_MAX_FILE_SIZE_BYTES) {
-    return `File is too large. Maximum is ${DOCUMENT_MAX_FILE_SIZE_KB} KB. Try compressing the document or exporting a smaller version.`;
+  if (file.size > DOCUMENT_MAX_FILE_SIZE_BYTES) {
+    return `File is too large. Maximum upload size is ${DOCUMENT_MAX_FILE_SIZE_MB} MB.`;
   }
 
   return null;
 }
 
-function generateDocumentFileId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID().replace(/-/g, '').slice(0, 12);
-  }
-  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function readBlobAsDataUrl(blob: Blob): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        resolve(reader.result);
-      } else {
-        reject(new Error('Could not read file.'));
-      }
-    };
-    reader.onerror = () => {
-      reject(new Error('Could not read file.'));
-    };
-    reader.readAsDataURL(blob);
-  });
-}
-
 function extractBase64FromDataUrl(dataUrl: string): string {
   const commaIdx = dataUrl.indexOf(',');
   return commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl;
-}
-
-function loadImageFromDataUrl(dataUrl: string): Promise<HTMLImageElement> {
-  return new Promise<HTMLImageElement>((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error('Could not process image file.'));
-    img.src = dataUrl;
-  });
-}
-
-function canvasToBlob(
-  canvas: HTMLCanvasElement,
-  mimeType: string,
-  quality?: number
-): Promise<Blob | null> {
-  return new Promise<Blob | null>((resolve) => {
-    canvas.toBlob((blob) => resolve(blob), mimeType, quality);
-  });
-}
-
-async function compressImageWithCanvas(
-  file: File,
-  initialContentType: 'image/jpeg' | 'image/png'
-): Promise<{ blob: Blob; contentType: string; fileName: string }> {
-  const dataUrl = await readBlobAsDataUrl(file);
-  const img = await loadImageFromDataUrl(dataUrl);
-
-  const longestSide = Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height);
-  const scale = longestSide > 1600 ? 1600 / longestSide : 1;
-  const targetWidth = Math.max(1, Math.round((img.naturalWidth || img.width) * scale));
-  const targetHeight = Math.max(1, Math.round((img.naturalHeight || img.height) * scale));
-
-  const canvas = document.createElement('canvas');
-  canvas.width = targetWidth;
-  canvas.height = targetHeight;
-
-  const ctx = canvas.getContext('2d');
-  if (!ctx) {
-    throw new Error(`File is too large. Maximum is ${DOCUMENT_MAX_FILE_SIZE_KB} KB.`);
-  }
-
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, targetWidth, targetHeight);
-  ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
-
-  if (initialContentType === 'image/png') {
-    const pngBlob = await canvasToBlob(canvas, 'image/png');
-    if (pngBlob && pngBlob.size <= DOCUMENT_MAX_FILE_SIZE_BYTES) {
-      return {
-        blob: pngBlob,
-        contentType: 'image/png',
-        fileName: file.name.trim(),
-      };
-    }
-  }
-
-  const qualities = [0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2];
-  for (const quality of qualities) {
-    const jpegBlob = await canvasToBlob(canvas, 'image/jpeg', quality);
-    if (jpegBlob && jpegBlob.size <= DOCUMENT_MAX_FILE_SIZE_BYTES) {
-      const trimmedName = file.name.trim();
-      const updatedName = trimmedName.toLowerCase().endsWith('.png')
-        ? trimmedName.replace(/\.png$/i, '.jpg')
-        : trimmedName;
-      return {
-        blob: jpegBlob,
-        contentType: 'image/jpeg',
-        fileName: updatedName,
-      };
-    }
-  }
-
-  throw new Error(`File is too large. Maximum is ${DOCUMENT_MAX_FILE_SIZE_KB} KB.`);
-}
-
-async function prepareDocumentPayload(
-  file: File,
-  initialContentType: string
-): Promise<{ base64: string; size: number; contentType: string; name: string }> {
-  const isImage =
-    initialContentType === 'image/jpeg' || initialContentType === 'image/png';
-
-  let workingBlob: Blob = file;
-  let finalContentType = initialContentType;
-  let finalName = sanitiseDocumentFilename(file.name) || file.name.trim() || 'document';
-  if (file.name.trim()) {
-    finalName = file.name.trim();
-  }
-
-  if (file.size > DOCUMENT_MAX_FILE_SIZE_BYTES) {
-    if (!isImage) {
-      throw new Error(
-        `File is too large. Maximum is ${DOCUMENT_MAX_FILE_SIZE_KB} KB. Please compress or export a smaller version.`
-      );
-    }
-    const compressed = await compressImageWithCanvas(
-      file,
-      initialContentType as 'image/jpeg' | 'image/png'
-    );
-    workingBlob = compressed.blob;
-    finalContentType = compressed.contentType;
-    finalName = compressed.fileName;
-  }
-
-  if (workingBlob.size > DOCUMENT_MAX_FILE_SIZE_BYTES) {
-    throw new Error(`File is too large. Maximum is ${DOCUMENT_MAX_FILE_SIZE_KB} KB.`);
-  }
-
-  const dataUrl = await readBlobAsDataUrl(workingBlob);
-  const base64 = extractBase64FromDataUrl(dataUrl);
-  if (!base64) {
-    throw new Error('Could not read file.');
-  }
-
-  return {
-    base64,
-    size: workingBlob.size,
-    contentType: finalContentType,
-    name: finalName,
-  };
 }
 
 function base64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
@@ -2029,48 +1913,37 @@ export async function saveIdeaDocumentToFirestore({
     throw new Error(validationError);
   }
 
-  const initialContentType = resolveDocumentContentType(file);
-  if (!initialContentType) {
+  const resolvedType = resolveDocumentContentType(file);
+  if (!resolvedType) {
     throw new Error('Only PDF, DOCX, JPG or PNG files are accepted.');
   }
 
-  const prepared = await prepareDocumentPayload(file, initialContentType);
+  const existingToReplace =
+    isReplacing && docType !== 'letters' ? documents[docType] : null;
 
-  const fileId = generateDocumentFileId();
-  const uploadedAt = new Date().toISOString();
+  // 1. Upload file to Supabase Storage (`ceda-hack-docs` bucket) & save record in Firestore `documents` collection
+  const storedRecord = await uploadDocumentToSupabaseAndFirestore({
+    file,
+    userId: draft.submitterId,
+    ideaId: draft.id,
+    docType,
+    note,
+  });
+
   const cleanNote = note?.trim().slice(0, 200);
   const targetCollection = draft.storageTarget === 'submissions' ? 'submissions' : 'ideas';
-  const newFileRef = doc(db, targetCollection, draft.id, 'files', fileId);
   const ideaRef = doc(db, targetCollection, draft.id);
 
-  // 1. Write the new file document first
-  try {
-    await setDoc(newFileRef, {
-      docType,
-      name: prepared.name,
-      size: prepared.size,
-      contentType: prepared.contentType,
-      data: prepared.base64,
-      uploadedAt,
-      ...(cleanNote ? { note: cleanNote } : {}),
-    });
-  } catch (err) {
-    if (isPermissionDeniedError(err)) {
-      logFirestorePermissionError(
-        err,
-        'create',
-        `${targetCollection}/${draft.id}/files/${fileId}`
-      );
-    }
-    throw new Error('Could not save. Retry');
-  }
-
   const newMeta: IdeaDocumentFile = {
-    fileId,
-    name: prepared.name,
-    size: prepared.size,
-    contentType: prepared.contentType,
-    uploadedAt,
+    fileId: storedRecord.id,
+    documentId: storedRecord.id,
+    name: storedRecord.name,
+    size: storedRecord.size,
+    contentType: storedRecord.type,
+    storagePath: storedRecord.storagePath,
+    publicUrl: storedRecord.publicUrl,
+    uploaderId: storedRecord.uploaderId,
+    uploadedAt: storedRecord.createdAt,
     ...(cleanNote ? { note: cleanNote } : {}),
   };
 
@@ -2087,15 +1960,19 @@ export async function saveIdeaDocumentToFirestore({
         }
   );
 
-  // 2. Persist metadata in idea.documents (never storing base64 on the idea doc)
+  // 2. Persist document metadata on the idea draft
   try {
     await updateDoc(ideaRef, {
       'idea.documents': nextDocuments,
-      updatedAt: uploadedAt,
+      updatedAt: storedRecord.createdAt,
     });
   } catch (err) {
-    // Roll back the newly written file document if metadata write fails
-    await deleteDoc(newFileRef).catch(() => {
+    // Roll back Supabase file and Firestore `documents` record if idea update fails
+    await deleteDocumentFromSupabaseAndFirestore({
+      documentId: storedRecord.id,
+      storagePath: storedRecord.storagePath,
+      userId: draft.submitterId,
+    }).catch(() => {
       // Best-effort rollback
     });
     if (isPermissionDeniedError(err)) {
@@ -2104,29 +1981,21 @@ export async function saveIdeaDocumentToFirestore({
     throw new Error('Could not save. Retry');
   }
 
-  // 3. If replacing an existing file, delete the old file document after new file & metadata succeed
-  if (replacingFileId && replacingFileId !== fileId) {
-    try {
-      await deleteDoc(doc(db, targetCollection, draft.id, 'files', replacingFileId));
-    } catch (err) {
-      // Roll back metadata and new file doc if old file cleanup fails
-      await updateDoc(ideaRef, {
-        'idea.documents': previousDocuments,
-        updatedAt: new Date().toISOString(),
-      }).catch(() => {
-        // Best-effort rollback
+  // 3. If replacing an existing file, clean up the old file from Supabase + Firestore
+  const oldFileId = existingToReplace?.fileId || replacingFileId;
+  if (oldFileId && oldFileId !== storedRecord.id) {
+    if (existingToReplace?.storagePath || existingToReplace?.documentId) {
+      await deleteDocumentFromSupabaseAndFirestore({
+        documentId: existingToReplace.documentId || oldFileId,
+        storagePath: existingToReplace.storagePath,
+        userId: draft.submitterId,
+      }).catch((cleanupErr) => {
+        console.warn('Old Supabase document cleanup warning:', cleanupErr);
       });
-      await deleteDoc(newFileRef).catch(() => {
-        // Best-effort rollback
+    } else {
+      await deleteDoc(doc(db, targetCollection, draft.id, 'files', oldFileId)).catch(() => {
+        // Ignore legacy subcollection cleanup errors
       });
-      if (isPermissionDeniedError(err)) {
-        logFirestorePermissionError(
-          err,
-          'delete',
-          `${targetCollection}/${draft.id}/files/${replacingFileId}`
-        );
-      }
-      throw new Error('Could not save. Retry');
     }
   }
 
@@ -2138,7 +2007,7 @@ export async function saveIdeaDocumentToFirestore({
       ...currentIdea,
       documents: nextDocuments,
     },
-    updatedAt: uploadedAt,
+    updatedAt: storedRecord.createdAt,
   };
 
   return {
@@ -2201,7 +2070,29 @@ export async function removeIdeaDocumentFromFirestore({
         }
   );
 
-  // 1. Update idea.documents metadata first so we can roll back cleanly if file deletion fails
+  // 1. Delete from Supabase Storage and Firestore `documents` collection (or legacy subcollection)
+  if (targetFile.storagePath || targetFile.documentId) {
+    await deleteDocumentFromSupabaseAndFirestore({
+      documentId: targetFile.documentId || targetFile.fileId,
+      storagePath: targetFile.storagePath,
+      userId: draft.submitterId,
+    });
+  } else if (targetFile.fileId) {
+    try {
+      await deleteDoc(doc(db, targetCollection, draft.id, 'files', targetFile.fileId));
+    } catch (err) {
+      if (isPermissionDeniedError(err)) {
+        logFirestorePermissionError(
+          err,
+          'delete',
+          `${targetCollection}/${draft.id}/files/${targetFile.fileId}`
+        );
+      }
+      throw new Error('Could not remove file. Retry');
+    }
+  }
+
+  // 2. Remove metadata reference from idea.documents
   try {
     await updateDoc(ideaRef, {
       'idea.documents': nextDocuments,
@@ -2212,29 +2103,6 @@ export async function removeIdeaDocumentFromFirestore({
       logFirestorePermissionError(err, 'update', `${targetCollection}/${draft.id}`);
     }
     throw new Error('Could not save. Retry');
-  }
-
-  // 2. Delete the file document
-  if (targetFile.fileId) {
-    try {
-      await deleteDoc(doc(db, targetCollection, draft.id, 'files', targetFile.fileId));
-    } catch (err) {
-      // Roll back metadata so file doc & metadata stay consistent
-      await updateDoc(ideaRef, {
-        'idea.documents': previousDocuments,
-        updatedAt: new Date().toISOString(),
-      }).catch(() => {
-        // Best-effort rollback
-      });
-      if (isPermissionDeniedError(err)) {
-        logFirestorePermissionError(
-          err,
-          'delete',
-          `${targetCollection}/${draft.id}/files/${targetFile.fileId}`
-        );
-      }
-      throw new Error('Could not save. Retry');
-    }
   }
 
   clearLocalDraftsForUser(draft.submitterId);
@@ -2259,6 +2127,28 @@ export async function openIdeaDocumentPreview(
   storageTarget: DraftStorageTarget | undefined,
   file: IdeaDocumentFile
 ): Promise<void> {
+  if (!file?.fileId && !file?.publicUrl) {
+    throw new Error('File record is missing.');
+  }
+
+  let directUrl = file.publicUrl?.trim() || '';
+  if (!directUrl && (file.documentId || file.storagePath)) {
+    directUrl =
+      (await getDocumentPublicUrlFromFirestore(file.documentId || file.fileId)) || '';
+  }
+
+  if (directUrl) {
+    const anchor = document.createElement('a');
+    anchor.href = directUrl;
+    anchor.target = '_blank';
+    anchor.rel = 'noopener noreferrer';
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    return;
+  }
+
+  // Fallback for legacy base64 records stored in subcollection
   if (!ideaId || !file?.fileId) {
     throw new Error('File record is missing.');
   }
@@ -2292,7 +2182,6 @@ export async function openIdeaDocumentPreview(
   anchor.click();
   document.body.removeChild(anchor);
 
-  // Revoke object URL after browser tab has loaded the Blob
   window.setTimeout(() => {
     URL.revokeObjectURL(objectUrl);
   }, 60_000);
@@ -2306,9 +2195,13 @@ export function sanitizeIdeaDocumentsForFirestore(
     const cleanNote = file.note?.trim().slice(0, 200);
     return {
       fileId: file.fileId.trim(),
+      ...(file.documentId?.trim() ? { documentId: file.documentId.trim() } : {}),
       name: file.name.trim(),
       size: Math.max(0, Math.round(file.size)),
       contentType: file.contentType.trim(),
+      ...(file.storagePath?.trim() ? { storagePath: file.storagePath.trim() } : {}),
+      ...(file.publicUrl?.trim() ? { publicUrl: file.publicUrl.trim() } : {}),
+      ...(file.uploaderId?.trim() ? { uploaderId: file.uploaderId.trim() } : {}),
       uploadedAt: file.uploadedAt,
       ...(cleanNote ? { note: cleanNote } : {}),
     };
@@ -2366,15 +2259,23 @@ export async function saveIdeaStep3Documents(
       ...(nextStepOverride !== undefined ? { currentStep: resolvedStep } : {}),
     });
 
-    // Keep optional letter notes synced on the corresponding file documents
+    // Keep optional letter notes synced on the corresponding Firestore `documents` record (or legacy file doc)
     await Promise.all(
-      cleanDocuments.letters.map((letter) =>
-        updateDoc(doc(db, targetCollection, draft.id, 'files', letter.fileId), {
+      cleanDocuments.letters.map((letter) => {
+        if (letter.documentId || letter.storagePath) {
+          return updateDocumentNoteInFirestore(
+            letter.documentId || letter.fileId,
+            letter.note || ''
+          ).catch(() => {
+            // Ignore sync if doc note already matches or missing
+          });
+        }
+        return updateDoc(doc(db, targetCollection, draft.id, 'files', letter.fileId), {
           note: letter.note || '',
         }).catch(() => {
           // Ignore sync if file doc note already matches or missing
-        })
-      )
+        });
+      })
     );
   } catch (err) {
     if (isPermissionDeniedError(err)) {

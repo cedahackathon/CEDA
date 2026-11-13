@@ -11,8 +11,9 @@ export type DocumentSlotKey =
   | 'cipa'
   | 'letters';
 
-export const DOCUMENT_MAX_FILE_SIZE_KB = 600;
-export const DOCUMENT_MAX_FILE_SIZE_BYTES = DOCUMENT_MAX_FILE_SIZE_KB * 1024; // 600 KB
+export const DOCUMENT_MAX_FILE_SIZE_MB = 10;
+export const DOCUMENT_MAX_FILE_SIZE_KB = DOCUMENT_MAX_FILE_SIZE_MB * 1024; // 10,240 KB
+export const DOCUMENT_MAX_FILE_SIZE_BYTES = DOCUMENT_MAX_FILE_SIZE_MB * 1024 * 1024; // 10 MB
 export const DOCUMENT_MAX_FILES_PER_IDEA = 8;
 export const MAX_SUPPORT_LETTERS = 8;
 

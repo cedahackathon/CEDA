@@ -6,6 +6,9 @@ import {defineConfig} from 'vite';
 export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss()],
+    optimizeDeps: {
+      entries: ['index.html'],
+    },
     resolve: {
       alias: {
         '@': path.resolve(import.meta.dirname || '.', '.'),

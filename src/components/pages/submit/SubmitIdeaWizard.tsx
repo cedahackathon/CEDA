@@ -121,6 +121,31 @@ function resolveStepFromPath(cleanPath: string): number {
   return 1;
 }
 
+function formatDocumentOperationError(err: unknown, fallback: string): string {
+  if (!(err instanceof Error)) return fallback;
+  const raw = err.message.trim();
+  if (!raw) return fallback;
+  if (raw.startsWith('{') && raw.endsWith('}')) {
+    try {
+      const parsed = JSON.parse(raw) as {
+        error?: string;
+        operationType?: string;
+        path?: string | null;
+      };
+      if (parsed?.error) {
+        const context =
+          parsed.operationType && parsed.path
+            ? ` (${parsed.operationType} on ${parsed.path})`
+            : '';
+        return `${parsed.error}${context}`;
+      }
+    } catch {
+      // fall through to raw message
+    }
+  }
+  return raw;
+}
+
 export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath }) => {
   const { currentUser, setCurrentRoute } = useAuth();
   const cleanPath = routePath.split('?')[0];
@@ -180,6 +205,7 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
   const [isSubmittingFinal, setIsSubmittingFinal] = useState(false);
   const [step4LiveAnnouncement, setStep4LiveAnnouncement] = useState('');
   const [activeUploads, setActiveUploads] = useState<ActiveDocumentUpload[]>([]);
+  const [removingDocKeys, setRemovingDocKeys] = useState<Record<string, boolean>>({});
   const [slotErrors, setSlotErrors] = useState<Partial<Record<DocumentSlotKey, string>>>({});
   const [previewingDocKey, setPreviewingDocKey] = useState<string | null>(null);
   const [step3LiveAnnouncement, setStep3LiveAnnouncement] = useState('');
@@ -1042,15 +1068,14 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
         setStep3LiveAnnouncement(`${safeSlotLabel} saved.`);
         return true;
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : 'Could not save. Retry';
+        const message = formatDocumentOperationError(err, 'Could not save. Retry');
         if (message === 'Could not save. Retry') {
           lastFailedSlotUploadRef.current[slotKey] = { file, replacingFileId };
         } else {
           delete lastFailedSlotUploadRef.current[slotKey];
         }
         setSlotErrors((prev) => ({ ...prev, [slotKey]: message }));
-        setStep3LiveAnnouncement(`Save failed for ${safeSlotLabel}.`);
+        setStep3LiveAnnouncement(`Upload failed for ${safeSlotLabel}: ${message}`);
         return false;
       } finally {
         setActiveUploads((prev) => prev.filter((item) => item.id !== uploadId));
@@ -1104,12 +1129,21 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
       );
       if (!confirmed) return;
 
+      const removeKey =
+        slotKey === 'letters' && typeof letterIndex === 'number'
+          ? `letters-${letterIndex}`
+          : slotKey;
+
       setSlotErrors((prev) => {
         const next = { ...prev };
         delete next[slotKey];
         return next;
       });
       setTouchedStep3Slots((prev) => ({ ...prev, [slotKey]: true }));
+      setRemovingDocKeys((prev) => ({ ...prev, [removeKey]: true }));
+
+      const slotMeta = DOCUMENT_SLOTS.find((s) => s.key === slotKey);
+      setStep3LiveAnnouncement(`Removing ${slotMeta?.title || 'Document'}.`);
 
       try {
         const result = await removeIdeaDocumentFromFirestore({
@@ -1126,12 +1160,20 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
         setSaveStatus('saved');
         setIsDirty(false);
 
-        const slotMeta = DOCUMENT_SLOTS.find((s) => s.key === slotKey);
         setStep3LiveAnnouncement(`${slotMeta?.title || 'Document'} removed and draft saved.`);
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : 'Could not save. Retry';
+        const message = formatDocumentOperationError(
+          err,
+          'Could not remove document. Please try again.'
+        );
         setSlotErrors((prev) => ({ ...prev, [slotKey]: message }));
+        setStep3LiveAnnouncement(`Failed to remove ${slotMeta?.title || 'Document'}: ${message}`);
+      } finally {
+        setRemovingDocKeys((prev) => {
+          const next = { ...prev };
+          delete next[removeKey];
+          return next;
+        });
       }
     },
     [draft]
@@ -1801,6 +1843,7 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
                       touchedSlots={touchedStep3Slots}
                       hasAttemptedNext={hasAttemptedNextStep3}
                       activeUploads={activeUploads}
+                      removingDocKeys={removingDocKeys}
                       slotErrors={slotErrors}
                       previewingKey={previewingDocKey}
                       saveStatus={saveStatus}

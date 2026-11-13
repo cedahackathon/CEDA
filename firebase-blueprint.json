@@ -139,6 +139,24 @@
         "note": { "type": "string", "description": "Optional note for letters of support" }
       },
       "required": ["docType", "name", "size", "contentType", "data", "uploadedAt"]
+    },
+    "documents": {
+      "title": "Documents",
+      "description": "Supabase Storage document metadata records stored in the Firestore documents collection (bucket: ceda-hack-docs, path: {userId}/{timestamp}_{sanitizedFilename}, max 10 MB).",
+      "fields": {
+        "id": { "type": "string", "description": "Unique document record ID matching the Firestore document ID" },
+        "name": { "type": "string", "description": "Original uploaded filename" },
+        "storagePath": { "type": "string", "description": "Supabase Storage object path ({userId}/{timestamp}_{sanitizedFilename})" },
+        "publicUrl": { "type": "string", "description": "Supabase Storage public URL for the uploaded file" },
+        "size": { "type": "number", "description": "File size in bytes (1 to 10485760 bytes / 10 MB max)" },
+        "type": { "type": "string", "description": "MIME content type (PDF, DOCX, JPG, PNG)" },
+        "uploaderId": { "type": "string", "description": "Firebase Auth UID of the uploader" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp when the document record was created" },
+        "ideaId": { "type": "string", "description": "Optional associated idea draft ID" },
+        "docType": { "type": "string", "enum": ["omang", "conceptNote", "budget", "proofOfResidence", "cipa", "letters"], "description": "Optional supporting document slot key" },
+        "note": { "type": "string", "description": "Optional description note (max 200 chars)" }
+      },
+      "required": ["id", "name", "storagePath", "publicUrl", "size", "type", "uploaderId", "createdAt"]
     }
   }
 }
