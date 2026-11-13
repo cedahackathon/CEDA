@@ -51,13 +51,19 @@ service cloud.firestore {
         )
       );
 
-      // Only admins can change another user's role or status; a user can never change their own role or status
+      // Only admins can change another user's role or status; owners can only activate their own PENDING profile
       allow update: if isSignedIn() && (
         (isAdmin() && !isOwner(userId))
         || (
           isOwner(userId)
           && request.resource.data.get('role', null) == resource.data.get('role', null)
-          && request.resource.data.get('status', null) == resource.data.get('status', null)
+          && (
+            request.resource.data.get('status', null) == resource.data.get('status', null)
+            || (
+              resource.data.get('status', null) in ['PENDING', 'pending']
+              && request.resource.data.get('status', null) == 'ACTIVE'
+            )
+          )
         )
       );
 

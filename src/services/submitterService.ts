@@ -5,6 +5,7 @@
 
 import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
 import { auth, db, firebaseConfig } from '../config/firebase';
+import { normalizeDistrictCouncilName } from '../config/districts';
 import { DEFAULT_OPEN_CALL, OpenCallData } from '../data/submitterMock';
 import { UserProfile } from '../types/auth';
 
@@ -531,6 +532,8 @@ export interface WizardApplicantDetails {
   declarationAccepted: boolean;
 }
 
+export type DraftStorageTarget = 'ideas' | 'submissions' | 'local';
+
 export interface IdeaDraft {
   id: string;
   submitterId: string;
@@ -539,6 +542,7 @@ export interface IdeaDraft {
   applicant: WizardApplicantDetails;
   createdAt: string;
   updatedAt: string;
+  storageTarget?: DraftStorageTarget;
 }
 
 export interface ProfileIdentityUpdate {
@@ -633,7 +637,7 @@ export function buildApplicantPrefillFromProfile(profile: UserProfile | null): W
     gender: extended.gender?.trim() || '',
     email: profile?.email?.trim() || '',
     phone: normalizeBotswanaPhoneInput(profile?.phone || ''),
-    district: profile?.district?.trim() || '',
+    district: normalizeDistrictCouncilName(profile?.district),
     town: profile?.town?.trim() || '',
     address: extended.address?.trim() || '',
     business: {
@@ -726,7 +730,10 @@ function normalizeDraftApplicant(
       typeof raw.phone === 'string' && raw.phone.trim()
         ? normalizeBotswanaPhoneInput(raw.phone)
         : fallback.phone,
-    district: typeof raw.district === 'string' && raw.district.trim() ? raw.district : fallback.district,
+    district:
+      typeof raw.district === 'string' && raw.district.trim()
+        ? normalizeDistrictCouncilName(raw.district)
+        : fallback.district,
     town: typeof raw.town === 'string' && raw.town.trim() ? raw.town : fallback.town,
     address: typeof raw.address === 'string' ? raw.address : fallback.address,
     business: {
@@ -774,6 +781,49 @@ export async function loadUserProfileForWizard(
   return fallbackUser;
 }
 
+function buildFirestoreIdeaPayload(draft: IdeaDraft, nowIso: string): Record<string, unknown> {
+  return {
+    id: draft.id,
+    submitterId: draft.submitterId,
+    status: 'draft',
+    currentStep: draft.currentStep,
+    applicant: draft.applicant,
+    district: draft.applicant.district || '',
+    town: draft.applicant.town || '',
+    createdAt: draft.createdAt || nowIso,
+    updatedAt: nowIso,
+  };
+}
+
+function buildFirestoreSubmissionDraftPayload(
+  draft: IdeaDraft,
+  nowIso: string
+): Record<string, unknown> {
+  const title =
+    draft.applicant.type === 'business' && draft.applicant.business.tradingName.trim()
+      ? `${draft.applicant.business.tradingName.trim()} Proposal (Draft)`
+      : 'New Innovation Proposal (Draft)';
+  const suffix = draft.id.replace(/[^a-zA-Z0-9]/g, '').slice(-6).toUpperCase() || '000001';
+  return {
+    id: draft.id,
+    trackingCode: `CEDA-DRAFT-${suffix}`,
+    submitterId: draft.submitterId,
+    title,
+    sector: 'General Innovation',
+    district: draft.applicant.district || 'Botswana',
+    town: draft.applicant.town || '',
+    requestedCapital: 0,
+    currentStage: 1,
+    stageName: 'Draft',
+    status: 'draft',
+    currentStep: draft.currentStep,
+    applicant: draft.applicant,
+    isBlinded: false,
+    createdAt: draft.createdAt || nowIso,
+    updatedAt: nowIso,
+  };
+}
+
 export async function findOrCreateIdeaDraft(
   uid: string,
   profile: UserProfile | null
@@ -782,6 +832,7 @@ export async function findOrCreateIdeaDraft(
   const nowIso = new Date().toISOString();
 
   if (canQueryFirestoreForUser(uid)) {
+    // 1. Primary collection: `ideas`
     try {
       const snap = await getDocs(query(collection(db, 'ideas'), where('submitterId', '==', uid)));
       const drafts: IdeaDraft[] = [];
@@ -800,6 +851,7 @@ export async function findOrCreateIdeaDraft(
             ),
             createdAt: normalizeTimestamp(raw.createdAt) || nowIso,
             updatedAt: normalizeTimestamp(raw.updatedAt) || nowIso,
+            storageTarget: 'ideas',
           });
         }
       });
@@ -812,7 +864,6 @@ export async function findOrCreateIdeaDraft(
         return latest;
       }
 
-      // Create ONE new draft in Firestore
       const newDocRef = doc(collection(db, 'ideas'));
       const newDraft: IdeaDraft = {
         id: newDocRef.id,
@@ -822,8 +873,9 @@ export async function findOrCreateIdeaDraft(
         applicant: prefill,
         createdAt: nowIso,
         updatedAt: nowIso,
+        storageTarget: 'ideas',
       };
-      await setDoc(newDocRef, newDraft);
+      await setDoc(newDocRef, buildFirestoreIdeaPayload(newDraft, nowIso));
       const allLocal = readLocalDrafts().filter((d) => d.id !== newDraft.id);
       writeLocalDrafts([newDraft, ...allLocal]);
       return newDraft;
@@ -833,9 +885,65 @@ export async function findOrCreateIdeaDraft(
       }
       logFirestorePermissionWarning(err, 'list', 'ideas');
     }
+
+    // 2. Fallback Firestore collection: `submissions` (when `ideas` rules are not yet published)
+    try {
+      const subSnap = await getDocs(
+        query(collection(db, 'submissions'), where('submitterId', '==', uid))
+      );
+      const subDrafts: IdeaDraft[] = [];
+
+      subSnap.forEach((docSnap) => {
+        const raw = docSnap.data() as Record<string, unknown>;
+        if (String(raw.status || '').toLowerCase() === 'draft') {
+          subDrafts.push({
+            id: docSnap.id,
+            submitterId: uid,
+            status: 'draft',
+            currentStep: Math.max(1, Math.min(4, Number(raw.currentStep) || 1)),
+            applicant: normalizeDraftApplicant(
+              raw.applicant as Record<string, unknown> | undefined,
+              prefill
+            ),
+            createdAt: normalizeTimestamp(raw.createdAt) || nowIso,
+            updatedAt: normalizeTimestamp(raw.updatedAt) || nowIso,
+            storageTarget: 'submissions',
+          });
+        }
+      });
+
+      if (subDrafts.length > 0) {
+        subDrafts.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+        const latest = subDrafts[0];
+        const allLocal = readLocalDrafts().filter((d) => d.id !== latest.id);
+        writeLocalDrafts([latest, ...allLocal]);
+        return latest;
+      }
+
+      const newSubRef = doc(collection(db, 'submissions'));
+      const newSubDraft: IdeaDraft = {
+        id: newSubRef.id,
+        submitterId: uid,
+        status: 'draft',
+        currentStep: 1,
+        applicant: prefill,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        storageTarget: 'submissions',
+      };
+      await setDoc(newSubRef, buildFirestoreSubmissionDraftPayload(newSubDraft, nowIso));
+      const allLocal = readLocalDrafts().filter((d) => d.id !== newSubDraft.id);
+      writeLocalDrafts([newSubDraft, ...allLocal]);
+      return newSubDraft;
+    } catch (subErr) {
+      if (!isPermissionDeniedError(subErr)) {
+        throw subErr instanceof Error ? subErr : new Error('Unable to load or create draft.');
+      }
+      logFirestorePermissionWarning(subErr, 'list', 'submissions');
+    }
   }
 
-  // Local / fallback draft store
+  // 3. Local fallback draft store (offline/demo or unconfigured Firestore rules)
   const localDrafts = readLocalDrafts();
   const existing = localDrafts
     .filter((d) => d.submitterId === uid && d.status === 'draft')
@@ -844,6 +952,7 @@ export async function findOrCreateIdeaDraft(
   if (existing) {
     const normalized: IdeaDraft = {
       ...existing,
+      storageTarget: 'local',
       applicant: normalizeDraftApplicant(
         existing.applicant as unknown as Record<string, unknown>,
         prefill
@@ -860,6 +969,7 @@ export async function findOrCreateIdeaDraft(
     applicant: prefill,
     createdAt: nowIso,
     updatedAt: nowIso,
+    storageTarget: 'local',
   };
   writeLocalDrafts([created, ...localDrafts]);
   syncDraftIntoLocalIdeasSummary(created);
@@ -956,26 +1066,44 @@ export async function saveIdeaDraft(
   }
 
   if (canQueryFirestoreForUser(draft.submitterId)) {
-    try {
-      await setDoc(
-        doc(db, 'ideas', draft.id),
-        {
-          id: updatedDraft.id,
-          submitterId: updatedDraft.submitterId,
-          status: 'draft',
-          currentStep: updatedDraft.currentStep,
-          applicant: updatedDraft.applicant,
-          createdAt: updatedDraft.createdAt || nowIso,
-          updatedAt: nowIso,
-        },
-        { merge: true }
-      );
-    } catch (err) {
-      if (!isPermissionDeniedError(err)) {
-        throw err instanceof Error ? err : new Error('Could not save draft.');
+    let savedToCloud = false;
+
+    if (updatedDraft.storageTarget !== 'submissions') {
+      try {
+        await setDoc(
+          doc(db, 'ideas', draft.id),
+          buildFirestoreIdeaPayload(updatedDraft, nowIso),
+          { merge: true }
+        );
+        updatedDraft.storageTarget = 'ideas';
+        savedToCloud = true;
+      } catch (err) {
+        if (!isPermissionDeniedError(err)) {
+          throw err instanceof Error ? err : new Error('Could not save draft.');
+        }
+        logFirestorePermissionWarning(err, 'list', 'ideas');
       }
-      logFirestorePermissionWarning(err, 'list', 'ideas');
     }
+
+    if (!savedToCloud) {
+      try {
+        await setDoc(
+          doc(db, 'submissions', draft.id),
+          buildFirestoreSubmissionDraftPayload(updatedDraft, nowIso),
+          { merge: true }
+        );
+        updatedDraft.storageTarget = 'submissions';
+        savedToCloud = true;
+      } catch (subErr) {
+        if (!isPermissionDeniedError(subErr)) {
+          throw subErr instanceof Error ? subErr : new Error('Could not save draft.');
+        }
+        logFirestorePermissionWarning(subErr, 'list', 'submissions');
+        updatedDraft.storageTarget = 'local';
+      }
+    }
+  } else {
+    updatedDraft.storageTarget = 'local';
   }
 
   const others = readLocalDrafts().filter((d) => d.id !== updatedDraft.id);

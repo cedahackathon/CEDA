@@ -102,6 +102,8 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
   // Dirty / autosave tracking
   const [isDirty, setIsDirty] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+  const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
+  const [isAdvancingStep, setIsAdvancingStep] = useState(false);
   const [lastSavedAtMs, setLastSavedAtMs] = useState<number | null>(null);
   const [nowTickMs, setNowTickMs] = useState<number>(() => Date.now());
 
@@ -124,9 +126,9 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
     isLiveChatAvailableNow()
   );
 
-  // Refs for debounced autosave and focusing first error
+  // Refs for debounced autosave, serialized saves, and focusing first error
   const blurSaveTimerRef = useRef<number | null>(null);
-  const isSavingRef = useRef(false);
+  const inFlightSavePromiseRef = useRef<Promise<boolean> | null>(null);
   const fieldRefs = useRef<Partial<Record<FieldKey, HTMLElement | null>>>({});
 
   const hasVerifiedIdentity = useMemo(
@@ -310,47 +312,69 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
 
   const performSave = useCallback(
     async (targetStepOverride?: number): Promise<boolean> => {
-      if (!draft || !applicant || isSavingRef.current) return false;
-      isSavingRef.current = true;
-      setSaveStatus('saving');
+      if (!draft || !applicant) return false;
 
-      try {
-        const nextStep = targetStepOverride ?? draft.currentStep ?? 1;
-        const profileUpdate: ProfileIdentityUpdate = {};
-
-        if (!hasVerifiedIdentity) {
-          if (applicant.firstName.trim()) profileUpdate.firstName = applicant.firstName.trim();
-          if (applicant.surname.trim()) profileUpdate.surname = applicant.surname.trim();
-          if (isValidOmangDigits(rawOmangInput)) {
-            profileUpdate.omangOrPassport = rawOmangInput.trim();
-          }
-          if (applicant.dateOfBirth.trim()) profileUpdate.dob = applicant.dateOfBirth.trim();
-        }
-        if (applicant.gender) profileUpdate.gender = applicant.gender;
-        if (applicant.district.trim()) profileUpdate.district = applicant.district.trim();
-        if (applicant.town.trim()) profileUpdate.town = applicant.town.trim();
-        if (applicant.address.trim()) profileUpdate.address = applicant.address.trim();
-
-        const applicantForSave: WizardApplicantDetails = {
-          ...applicant,
-          omang: hasVerifiedIdentity
-            ? maskOmangLast3(profile?.omangOrPassport || applicant.omang)
-            : maskOmangLast3(rawOmangInput || applicant.omang),
-        };
-
-        const savedDraft = await saveIdeaDraft(draft, applicantForSave, nextStep, profileUpdate);
-        setDraft(savedDraft);
-        setLastSavedAtMs(Date.now());
-        setNowTickMs(Date.now());
-        setSaveStatus('saved');
-        setIsDirty(false);
-        return true;
-      } catch {
-        setSaveStatus('error');
-        return false;
-      } finally {
-        isSavingRef.current = false;
+      if (blurSaveTimerRef.current) {
+        window.clearTimeout(blurSaveTimerRef.current);
+        blurSaveTimerRef.current = null;
       }
+
+      if (inFlightSavePromiseRef.current) {
+        if (targetStepOverride === undefined) {
+          return inFlightSavePromiseRef.current;
+        }
+        await inFlightSavePromiseRef.current.catch(() => false);
+      }
+
+      const runSave = async (): Promise<boolean> => {
+        setSaveStatus('saving');
+        setSaveErrorMessage(null);
+
+        try {
+          const nextStep = targetStepOverride ?? draft.currentStep ?? 1;
+          const profileUpdate: ProfileIdentityUpdate = {};
+
+          if (!hasVerifiedIdentity) {
+            if (applicant.firstName.trim()) profileUpdate.firstName = applicant.firstName.trim();
+            if (applicant.surname.trim()) profileUpdate.surname = applicant.surname.trim();
+            if (isValidOmangDigits(rawOmangInput)) {
+              profileUpdate.omangOrPassport = rawOmangInput.trim();
+            }
+            if (applicant.dateOfBirth.trim()) profileUpdate.dob = applicant.dateOfBirth.trim();
+          }
+          if (applicant.gender) profileUpdate.gender = applicant.gender;
+          if (applicant.district.trim()) profileUpdate.district = applicant.district.trim();
+          if (applicant.town.trim()) profileUpdate.town = applicant.town.trim();
+          if (applicant.address.trim()) profileUpdate.address = applicant.address.trim();
+
+          const applicantForSave: WizardApplicantDetails = {
+            ...applicant,
+            omang: hasVerifiedIdentity
+              ? maskOmangLast3(profile?.omangOrPassport || applicant.omang)
+              : maskOmangLast3(rawOmangInput || applicant.omang),
+          };
+
+          const savedDraft = await saveIdeaDraft(draft, applicantForSave, nextStep, profileUpdate);
+          setDraft(savedDraft);
+          setLastSavedAtMs(Date.now());
+          setNowTickMs(Date.now());
+          setSaveStatus('saved');
+          setIsDirty(false);
+          return true;
+        } catch (err) {
+          setSaveStatus('error');
+          setSaveErrorMessage(
+            err instanceof Error ? err.message : 'Could not save your draft to the database.'
+          );
+          return false;
+        } finally {
+          inFlightSavePromiseRef.current = null;
+        }
+      };
+
+      const promise = runSave();
+      inFlightSavePromiseRef.current = promise;
+      return promise;
     },
     [applicant, draft, hasVerifiedIdentity, profile, rawOmangInput]
   );
@@ -473,6 +497,8 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
   };
 
   const handleNextClick = async () => {
+    if (isAdvancingStep) return;
+
     if (!validation.isValid) {
       setHasAttemptedNext(true);
       const allTouched: Partial<Record<FieldKey, boolean>> = {};
@@ -490,10 +516,15 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
       return;
     }
 
-    const nextStep = Math.max(draft?.currentStep || 1, 2);
-    const savedOk = await performSave(nextStep);
-    if (savedOk) {
-      setCurrentRoute('/submit/idea');
+    setIsAdvancingStep(true);
+    try {
+      const nextStep = Math.max(draft?.currentStep || 1, 2);
+      const savedOk = await performSave(nextStep);
+      if (savedOk) {
+        setCurrentRoute('/submit/idea');
+      }
+    } finally {
+      setIsAdvancingStep(false);
     }
   };
 
@@ -511,13 +542,10 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
     );
   }, [applicant?.district]);
 
-  const districtOptions = useMemo(() => {
-    const names = BOTSWANA_DISTRICTS.map((d) => d.name);
-    if (applicant?.district && !names.includes(applicant.district)) {
-      return [applicant.district, ...names];
-    }
-    return names;
-  }, [applicant?.district]);
+  const districtOptions = useMemo(
+    () => BOTSWANA_DISTRICTS.map((d) => d.name),
+    []
+  );
 
   const relativeSavedLabel = useMemo(() => {
     if (saveStatus === 'saving') return 'Saving...';
@@ -831,6 +859,31 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
                           <p className="text-[11px] text-[#77574e] mt-0.5">* Required</p>
                         </div>
                       </div>
+
+                      {/* Save Error Banner */}
+                      {saveStatus === 'error' && saveErrorMessage && (
+                        <div
+                          role="alert"
+                          className="rounded-xl bg-[#ffdad6]/50 border border-[#ba1a1a]/40 px-4 py-3 flex items-center justify-between gap-3"
+                        >
+                          <div className="flex items-start gap-2.5 text-xs text-[#400200]">
+                            <span className="material-symbols-outlined text-[18px] text-[#ba1a1a] mt-0.5 shrink-0">
+                              cloud_off
+                            </span>
+                            <div>
+                              <p className="font-bold">Could not save your progress</p>
+                              <p className="mt-0.5 text-[#5a413c]">{saveErrorMessage}</p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleSaveDraftClick}
+                            className="h-8 px-3 rounded-lg bg-[#a02010] hover:bg-[#7c0700] text-white text-xs font-semibold shrink-0"
+                          >
+                            Retry
+                          </button>
+                        </div>
+                      )}
 
                       {/* Error Summary Banner when Next fails */}
                       {hasAttemptedNext && validation.errorKeys.length > 0 && (
@@ -1854,21 +1907,24 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
                         >
                           <button
                             type="submit"
-                            aria-disabled={!validation.isValid}
+                            disabled={isAdvancingStep}
+                            aria-disabled={!validation.isValid || isAdvancingStep}
                             title={
                               !validation.isValid
                                 ? 'Complete the required fields to continue'
                                 : undefined
                             }
                             className={`inline-flex items-center justify-center gap-2 h-10 px-5 rounded-xl text-xs font-semibold transition-colors shadow-xs ${
-                              validation.isValid
+                              isAdvancingStep
+                                ? 'bg-[#a02010]/80 text-white cursor-wait'
+                                : validation.isValid
                                 ? 'bg-[#a02010] hover:bg-[#7c0700] text-white cursor-pointer'
                                 : 'bg-[#e5dad4] text-[#5a413c] border border-[#d6c2ba] cursor-not-allowed'
                             }`}
                           >
-                            <span>Next: Idea details</span>
+                            <span>{isAdvancingStep ? 'Saving step...' : 'Next: Idea details'}</span>
                             <span className="material-symbols-outlined text-[16px]">
-                              arrow_forward
+                              {isAdvancingStep ? 'hourglass_top' : 'arrow_forward'}
                             </span>
                           </button>
 
