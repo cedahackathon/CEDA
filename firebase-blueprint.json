@@ -1,0 +1,102 @@
+{
+  "entities": {
+    "users": {
+      "title": "Users",
+      "description": "Registered citizen submitters and official parastatal portal personnel with strict BDPA compliance.",
+      "fields": {
+        "id": { "type": "string", "description": "Unique Firebase Auth UID matching the document path" },
+        "email": { "type": "string", "format": "email", "description": "Contact and login email address" },
+        "phone": { "type": "string", "description": "Botswana mobile phone (+267)" },
+        "firstName": { "type": "string", "description": "First name of the citizen" },
+        "surname": { "type": "string", "description": "Family surname" },
+        "fullName": { "type": "string", "description": "Full legal name" },
+        "omangOrPassport": { "type": "string", "description": "9-digit Botswana Omang or Passport Number" },
+        "dob": { "type": "string", "format": "date", "description": "Date of birth" },
+        "district": { "type": "string", "description": "Botswana administrative district region" },
+        "town": { "type": "string", "description": "City, town, or village" },
+        "accountType": { "type": "string", "enum": ["individual", "business"], "description": "Citizen individual vs registered group" },
+        "role": { "type": "string", "enum": ["SUBMITTER", "EVALUATOR", "ADJUDICATOR", "ADMIN", "STAKEHOLDER"], "description": "Single primary parastatal role" },
+        "status": { "type": "string", "enum": ["PENDING", "ACTIVE", "LOCKED"], "description": "Account security state" },
+        "verificationChannel": { "type": "string", "enum": ["sms", "email"], "description": "Default OTP transmission method" },
+        "emailVerified": { "type": "boolean", "description": "Flag indicating email verification" },
+        "phoneVerified": { "type": "boolean", "description": "Flag indicating mobile SMS OTP verification" },
+        "tradingName": { "type": "string", "description": "Optional business trading name" },
+        "cipaNumber": { "type": "string", "description": "Optional CIPA company registration number" },
+        "bursTin": { "type": "string", "description": "Optional BURS tax identification number" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update timestamp" }
+      },
+      "required": ["id", "email", "firstName", "surname", "role", "status", "createdAt"]
+    },
+    "sessions": {
+      "title": "Sessions",
+      "description": "Active web and mobile device sessions with 15-minute idle tracking and remote sign-out.",
+      "fields": {
+        "id": { "type": "string", "description": "Unique session ID" },
+        "userId": { "type": "string", "description": "Foreign key to users collection" },
+        "device": { "type": "string", "description": "Device category (e.g. Desktop Workstation, Mobile)" },
+        "browser": { "type": "string", "description": "Client user agent or browser name" },
+        "ipAddress": { "type": "string", "description": "Network gateway IP address" },
+        "location": { "type": "string", "description": "Approximate Botswana location" },
+        "lastActive": { "type": "string", "format": "date-time", "description": "Heartbeat timestamp" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Session initialization timestamp" }
+      },
+      "required": ["id", "userId", "device", "lastActive", "createdAt"]
+    },
+    "submissions": {
+      "title": "Submissions",
+      "description": "Innovation proposals filed through the CEDA intake funnel with SLA deadlines.",
+      "fields": {
+        "id": { "type": "string", "description": "Unique submission ID" },
+        "trackingCode": { "type": "string", "description": "Public reference code (e.g. CEDA-INN-2026-0842)" },
+        "submitterId": { "type": "string", "description": "Foreign key to submitter user profile" },
+        "title": { "type": "string", "description": "Name of innovation concept" },
+        "sector": { "type": "string", "description": "Target economic sector" },
+        "district": { "type": "string", "description": "Originating Botswana district" },
+        "requestedCapital": { "type": "number", "description": "Requested funding amount in Botswana Pula (BWP)" },
+        "currentStage": { "type": "number", "minimum": 1, "maximum": 5, "description": "1: Submit, 2: Review, 3: Feedback, 4: Approval, 5: Award" },
+        "stageName": { "type": "string", "description": "Human-readable stage title" },
+        "status": { "type": "string", "enum": ["DRAFT", "UNDER_REVIEW", "FEEDBACK_READY", "APPROVED", "DECLINED"], "description": "Lifecycle status" },
+        "slaDeadline": { "type": "string", "format": "date-time", "description": "SLA countdown expiration timestamp" },
+        "isBlinded": { "type": "boolean", "description": "Whether personal identity is masked during Stage 2" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Submission intake timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update timestamp" }
+      },
+      "required": ["id", "trackingCode", "submitterId", "title", "requestedCapital", "currentStage", "status", "createdAt"]
+    },
+    "reviews": {
+      "title": "Reviews",
+      "description": "Dual-blind evaluations scored across four statutory criteria with conflict recusal protections.",
+      "fields": {
+        "id": { "type": "string", "description": "Unique evaluation review ID" },
+        "submissionId": { "type": "string", "description": "Foreign key to submissions collection" },
+        "evaluatorId": { "type": "string", "description": "Foreign key to assigned evaluator user ID" },
+        "technicalViability": { "type": "number", "minimum": 0, "maximum": 30, "description": "Technical score (0-30)" },
+        "commercialScalability": { "type": "number", "minimum": 0, "maximum": 35, "description": "Market viability score (0-35)" },
+        "jobCreation": { "type": "number", "minimum": 0, "maximum": 20, "description": "Batswana employment impact (0-20)" },
+        "citizenInclusion": { "type": "number", "minimum": 0, "maximum": 15, "description": "Youth and women inclusion (0-15)" },
+        "compositeScore": { "type": "number", "minimum": 0, "maximum": 100, "description": "Total aggregated points (0-100)" },
+        "comments": { "type": "string", "description": "Actionable feedback for submitter and board" },
+        "noConflictAttested": { "type": "boolean", "description": "Signed conflict of interest declaration" },
+        "lockedAt": { "type": "string", "format": "date-time", "description": "Cryptographic commit timestamp" }
+      },
+      "required": ["id", "submissionId", "evaluatorId", "compositeScore", "noConflictAttested", "lockedAt"]
+    },
+    "audit_logs": {
+      "title": "Audit Logs",
+      "description": "Append-only SHA-256 hash-chained cryptographic audit ledger for parastatal governance.",
+      "fields": {
+        "id": { "type": "string", "description": "Unique audit record ID" },
+        "timestamp": { "type": "string", "format": "date-time", "description": "Event timestamp" },
+        "actorId": { "type": "string", "description": "User ID of acting party" },
+        "actorName": { "type": "string", "description": "Full name of actor" },
+        "actorRole": { "type": "string", "description": "Role held at execution time" },
+        "event": { "type": "string", "description": "Event classification code" },
+        "details": { "type": "string", "description": "Detailed description of action" },
+        "prevHash": { "type": "string", "description": "SHA-256 hash of previous block in chain" },
+        "blockHash": { "type": "string", "description": "SHA-256 hash of this record block" }
+      },
+      "required": ["id", "timestamp", "actorId", "event", "prevHash", "blockHash"]
+    }
+  }
+}

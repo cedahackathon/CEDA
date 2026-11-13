@@ -1,0 +1,566 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta content="width=device-width, initial-scale=1.0" name="viewport"><meta content="web_standard" name="shell-type"><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"><link href="https://fonts.googleapis.com" rel="preconnect"><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Montserrat:wght@600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={darkMode:"class",theme:{extend:{"colors":{"on-tertiary":"#ffffff","tertiary-fixed":"#ffdbcf","on-tertiary-fixed-variant":"#802a00","primary":"#7c0700","error":"#ba1a1a","on-primary-fixed-variant":"#8f1204","on-secondary-fixed":"#2c150f","primary-container":"#a02010","secondary-fixed":"#ffdbd1","surface-variant":"#e6e2dd","tertiary-fixed-dim":"#ffb59a","on-tertiary-fixed":"#380d00","outline-variant":"#e2bfb8","tertiary":"#6d2200","on-surface":"#1c1c19","secondary-fixed-dim":"#e7bdb2","on-secondary":"#ffffff","on-primary-fixed":"#400200","on-primary-container":"#ffb4a7","on-error":"#ffffff","tertiary-container":"#943100","outline":"#8d706b","surface-dim":"#ddd9d5","inverse-primary":"#ffb4a7","surface":"#fdf9f4","primary-fixed-dim":"#ffb4a7","on-error-container":"#93000a","error-container":"#ffdad6","on-surface-variant":"#5a413c","surface-bright":"#fdf9f4","inverse-surface":"#31302d","on-background":"#1c1c19","on-tertiary-container":"#ffb599","secondary":"#77574e","background":"#fdf9f4","on-secondary-container":"#7a5950","primary-fixed":"#ffdad4","surface-container-highest":"#e6e2dd","on-primary":"#ffffff","surface-container-high":"#ebe8e3","surface-container":"#f1ede8","secondary-container":"#ffd3c8","surface-tint":"#b12d1b","on-secondary-fixed-variant":"#5d3f37","inverse-on-surface":"#f4f0eb","surface-container-lowest":"#ffffff","surface-container-low":"#f7f3ee"},"borderRadius":{"DEFAULT":"0.25rem","lg":"0.5rem","xl":"0.75rem","full":"9999px"},"spacing":{"gutter":"1.5rem","space-xs":"0.25rem","margin-mobile":"1rem","space-xl":"2rem","margin":"2rem","space-lg":"1.5rem","gutter-mobile":"1rem","space-sm":"0.5rem","space-md":"1rem"},"fontFamily":{"headline-xl":["Montserrat"],"headline-md":["Montserrat"],"label-md":["Inter"],"caption":["Inter"],"label-sm":["Inter"],"headline-lg":["Montserrat"],"headline-sm":["Montserrat"],"body-sm":["Inter"],"body-md":["Inter"],"body-lg":["Inter"],"headline-xl-mobile":["Montserrat"]},"fontSize":{"headline-xl":["32px",{"lineHeight":"48px","fontWeight":"600"}],"headline-md":["20px",{"lineHeight":"30px","fontWeight":"600"}],"label-md":["14px",{"lineHeight":"20px","fontWeight":"500"}],"caption":["12px",{"lineHeight":"18px","fontWeight":"400"}],"label-sm":["12px",{"lineHeight":"18px","fontWeight":"500"}],"headline-lg":["24px",{"lineHeight":"36px","fontWeight":"600"}],"headline-sm":["18px",{"lineHeight":"28px","fontWeight":"600"}],"body-sm":["14px",{"lineHeight":"21px","fontWeight":"400"}],"body-md":["16px",{"lineHeight":"24px","fontWeight":"400"}],"body-lg":["16px",{"lineHeight":"24px","fontWeight":"500"}],"headline-xl-mobile":["26px",{"lineHeight":"38px","fontWeight":"600"}]}}}}</script></head><body class="bg-surface font-body-md text-on-surface"><header class="fixed top-0 w-full z-50 bg-surface/90 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="h-20 max-w-7xl mx-auto px-margin flex items-center justify-between gap-space-md"><div class="flex items-center gap-space-lg"><a class="flex items-center gap-space-sm" href="#"><img alt="CEDA Logo" class="h-10 w-auto object-contain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBDW1-1Qduw1Spy_W7IO_ZEzRH3BsTXgUvwuBvKLkbxVjdS8wYLyD6Iwzn4rYgLqVH0nRX8rgM4EPrGj78tx9476NHRfM1cZeTcImc64Snww61sGhdsA0Y_RRCRS30p-nNHxBp3vZ9uDZrSy63SXOv2YJ7txVFypztVvD2n8Ft0Uqho3ya2PCWeNCw9jEk2nqcrSf_T-0XwSFiJFVAMBL7uoTyPrngKuYM6ciFdtOi_3Sq96xogFB6d"><div class="h-6 w-px bg-outline-variant opacity-70"></div><div class="flex flex-col justify-center"><span class="font-headline-sm text-[14px] leading-tight font-semibold tracking-wider uppercase text-on-surface" style="font-family: Montserrat, sans-serif;">Innovation</span><span class="font-caption text-[11px] text-secondary tracking-wide uppercase font-medium leading-none mt-0.5" style="font-family: Montserrat, sans-serif;">MAnagement PORTAL</span></div></a><nav class="hidden lg:flex items-center gap-space-lg ml-space-md" data-active-classes="text-primary font-bold border-b-2 border-primary-container pb-1"><a aria-current="page" class="transition-colors text-primary font-bold border-b-2 border-primary-container pb-1" data-path="home" href="#">Home</a><a class="font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors" data-path="guidelines" href="#">Guidelines</a><a class="font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors" data-path="faqs" href="#">FAQs</a><a class="font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors" data-path="help-center" href="#">Help Center</a></nav></div><div class="flex items-center gap-space-md"><div class="hidden sm:flex items-center rounded-lg bg-surface-container px-space-xs py-1"><button class="px-space-sm py-1 font-label-sm text-label-sm font-semibold rounded bg-surface-container-lowest text-primary shadow-sm" type="button">EN</button><span class="text-outline px-1">|</span><button class="px-space-sm py-1 font-label-sm text-label-sm text-on-surface-variant hover:text-on-surface transition-colors" type="button">Setswana</button></div><div class="flex items-center gap-space-sm"><a class="inline-flex items-center justify-center min-h-[44px] px-space-md rounded-lg border border-primary-container text-primary-container font-label-md text-label-md hover:bg-surface-container-low transition-colors" data-path="login" href="#">Login</a><a class="inline-flex items-center justify-center min-h-[44px] px-space-lg rounded-lg bg-primary-container text-on-primary font-label-md text-label-md hover:bg-primary transition-colors shadow-sm" data-path="register" href="#">Register</a></div><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div></header><main class="w-full pt-20 bg-surface"><div class="flex flex-col w-full">
+<!-- SECTION 1: HERO SECTION -->
+<section class="relative w-full overflow-hidden bg-inverse-surface py-space-xl lg:py-24" style="background: radial-gradient(circle at 85% 20%, rgba(148, 49, 0, 0.28) 0%, rgba(49, 48, 45, 0.95) 45%, rgb(49, 48, 45) 100%), linear-gradient(rgba(160, 32, 16, 0.15) 0%, rgba(49, 48, 45, 0) 60%);"><div class="absolute inset-0 z-0 overflow-hidden pointer-events-none"><video autoplay="" loop="" muted="" playsinline="" class="w-full h-full object-cover opacity-70"><source src="https://www.pexels.com/download/video/9365382/" type="video/mp4"></video><div class="absolute inset-0 bg-gradient-to-r from-inverse-surface/85 via-inverse-surface/60 to-inverse-surface/30"></div><div class="absolute inset-0 bg-gradient-to-t from-inverse-surface/80 via-transparent to-inverse-surface/30"></div><div class="absolute -top-32 -left-32 w-96 h-96 rounded-full blur-3xl pointer-events-none opacity-25 bg-primary-container"></div><div class="absolute top-1/4 right-10 w-[500px] h-[500px] rounded-full blur-3xl pointer-events-none opacity-30 bg-tertiary-container"></div></div>
+<div class="relative z-10 max-w-7xl mx-auto px-margin grid grid-cols-1 lg:grid-cols-12 gap-space-xl items-center">
+<!-- Left Column (7 Cols) -->
+<div class="lg:col-span-7 flex flex-col items-start gap-space-md relative z-10" style="text-shadow: rgba(0, 0, 0, 0.85) 0px 2px 10px, rgba(0, 0, 0, 0.9) 0px 1px 3px;"><!-- Eyebrow Badge -->
+<div class="inline-flex items-center gap-space-xs px-space-sm py-1 rounded-full bg-surface-container-lowest/15 backdrop-blur-xl border border-white/20 shadow-sm">
+  <span class="w-2.5 h-2.5 rounded-full bg-primary-container ring-2 ring-white/30"></span>
+  <span class="font-label-sm text-label-sm text-inverse-on-surface font-semibold tracking-wide">
+    Citizen Entrepreneurial Development Agency
+  </span>
+</div>
+<!-- H1 Headline -->
+<h1 class="font-headline-xl text-headline-xl text-inverse-on-surface font-bold tracking-tight leading-tight lg:leading-[48px] drop-shadow-md">
+  Your idea. Evaluated fairly. Rewarded.
+</h1>
+<!-- Subtext -->
+<p class="font-body-lg text-body-lg text-inverse-on-surface/90 max-w-2xl leading-relaxed drop-shadow">
+  Submit your innovative idea to CEDA, track every stage in real time and get feedback from expert evaluators.
+</p>
+<!-- CTA Buttons -->
+<div class="flex flex-wrap items-center gap-space-md pt-space-xs w-full sm:w-auto">
+  <a class="inline-flex items-center justify-center gap-space-xs min-h-[44px] px-space-lg rounded-lg bg-primary-container text-on-primary font-label-md text-label-md font-semibold hover:bg-primary transition-all shadow-md group" data-path="register" href="#">
+    <span>Submit an idea</span>
+    <span class="material-symbols-outlined text-[18px] group-hover:translate-x-1 transition-transform">arrow_forward</span>
+  </a>
+  <a class="inline-flex items-center justify-center gap-space-xs min-h-[44px] px-space-md rounded-lg bg-surface-container-lowest/15 backdrop-blur-xl border border-white/20 text-inverse-on-surface font-label-md text-label-md font-semibold hover:bg-surface-container-lowest/25 transition-all shadow-sm" href="#how-it-works">
+    <span class="material-symbols-outlined text-[20px] text-tertiary-fixed">play_circle</span>
+    <span>How it works</span>
+  </a>
+</div>
+<!-- Tagline Note -->
+<div class="w-full max-w-lg rounded-xl bg-surface-container-lowest/15 backdrop-blur-xl border border-white/20 p-space-sm shadow-lg flex flex-col gap-space-xs"><div class="flex items-center justify-between gap-space-xs"><div class="flex items-center gap-1.5"><span class="material-symbols-outlined text-[16px] text-primary-fixed">timer</span><span class="font-label-sm text-label-sm font-bold uppercase tracking-wider text-primary-fixed">Applications Close In</span></div><span class="font-caption text-caption text-inverse-on-surface/80">Cycle Closes 28 Feb 2027 • 23:59 CAT</span></div><div class="grid grid-cols-4 gap-space-xs text-center"><div class="rounded-lg bg-surface-container-lowest/15 border border-white/15 px-2 py-1.5 flex flex-col items-center justify-center"><span class="font-headline-md text-headline-md font-bold text-inverse-on-surface tracking-tight leading-none" style="font-family: Montserrat, sans-serif;">14</span><span class="font-caption text-[11px] text-inverse-on-surface/75 uppercase tracking-wider mt-1 font-medium">Days</span></div><div class="rounded-lg bg-surface-container-lowest/15 border border-white/15 px-2 py-1.5 flex flex-col items-center justify-center"><span class="font-headline-md text-headline-md font-bold text-inverse-on-surface tracking-tight leading-none" style="font-family: Montserrat, sans-serif;">08</span><span class="font-caption text-[11px] text-inverse-on-surface/75 uppercase tracking-wider mt-1 font-medium">Hours</span></div><div class="rounded-lg bg-surface-container-lowest/15 border border-white/15 px-2 py-1.5 flex flex-col items-center justify-center"><span class="font-headline-md text-headline-md font-bold text-inverse-on-surface tracking-tight leading-none" style="font-family: Montserrat, sans-serif;">42</span><span class="font-caption text-[11px] text-inverse-on-surface/75 uppercase tracking-wider mt-1 font-medium">Mins</span></div><div class="rounded-lg bg-surface-container-lowest/15 border border-white/15 px-2 py-1.5 flex flex-col items-center justify-center"><span class="font-headline-md text-headline-md font-bold text-amber-500 tracking-tight leading-none" style="font-family: Montserrat, sans-serif;">18</span><span class="font-caption text-[11px] text-inverse-on-surface/75 uppercase tracking-wider mt-1 font-medium">Secs</span></div></div></div><div class="pt-space-sm flex items-center gap-space-sm text-inverse-on-surface/90 drop-shadow-sm">
+  <span class="font-caption text-caption uppercase tracking-wider font-semibold">Finance. Develop. Sustain.</span>
+  <span class="text-tertiary-fixed">•</span>
+  <span class="font-label-sm text-label-sm text-primary-fixed font-bold tracking-wide">#KaeKapaKae</span>
+</div></div>
+<!-- Right Column (5 Cols) - Realistic Pipeline Tracker Card -->
+<div class="lg:col-span-5 w-full">
+<div class="relative bg-surface-container-lowest rounded-xl shadow-xl p-space-lg flex flex-col gap-space-md overflow-hidden ring-1 ring-white/10" style="background: linear-gradient(175deg, #ffffff 0%, #fdf9f4 65%, #f6ede3 100%);">
+<!-- Top Accent Bar -->
+<div class="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-primary-container via-tertiary-container to-secondary"></div>
+<!-- Card Header & Metadata -->
+<div class="flex items-start justify-between gap-space-sm pt-space-xs">
+<div class="flex flex-col gap-1 min-w-0">
+<span class="font-label-sm text-label-sm font-semibold text-secondary uppercase tracking-wider">CEDA-INN-2026-0842</span>
+<h3 class="font-headline-sm text-headline-sm text-on-surface font-semibold leading-snug line-clamp-2">
+                Solar-Powered Smart Grain Silos for Chobe Farmers
+              </h3>
+<p class="font-caption text-caption text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">person</span>
+                Kagiso Molefe (Maun, North-West)
+              </p>
+</div>
+<!-- Status Badge: Under Review -->
+<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-secondary-container text-tertiary font-label-sm text-label-sm font-semibold shrink-0">
+<span class="material-symbols-outlined text-[14px] animate-spin">schedule</span>
+              Under review
+            </span>
+</div>
+<!-- Horizontal Stage Tracker Visual -->
+<div class="relative py-space-sm mt-space-xs">
+<!-- Connecting Line -->
+<div class="absolute top-6 left-5 right-5 h-1 bg-surface-variant -translate-y-1/2 z-0"></div>
+<div class="absolute top-6 left-5 w-1/4 h-1 bg-primary-container -translate-y-1/2 z-0"></div>
+<div class="relative z-10 flex justify-between items-start text-center">
+<!-- 1. Submission (Completed) -->
+<div class="flex flex-col items-center flex-1">
+<div class="w-8 h-8 rounded-full bg-primary-container text-on-primary flex items-center justify-center shadow-md">
+<span class="material-symbols-outlined text-[16px]">check</span>
+</div>
+<span class="font-label-sm text-label-sm font-semibold text-on-surface mt-1.5">Submit</span>
+<span class="font-caption text-caption text-on-surface-variant text-[11px] leading-tight">14 Nov 2026</span>
+</div>
+<!-- 2. Review (Active) -->
+<div class="flex flex-col items-center flex-1">
+<div class="relative w-8 h-8 rounded-full bg-surface-container-lowest text-tertiary-container flex items-center justify-center shadow-md ring-2 ring-tertiary-container/30">
+
+<span class="font-label-sm text-label-sm font-bold text-tertiary-container relative z-10">2</span>
+</div>
+<span class="font-label-sm text-label-sm font-bold text-tertiary-container mt-1.5">Review</span>
+<span class="font-caption text-caption text-primary font-medium text-[11px] leading-tight">In progress</span>
+</div>
+<!-- 3. Feedback (Upcoming) -->
+<div class="flex flex-col items-center flex-1 opacity-70">
+<div class="w-8 h-8 rounded-full bg-surface-container-high text-on-surface-variant flex items-center justify-center font-label-sm text-label-sm">
+                  3
+                </div>
+<span class="font-label-sm text-label-sm text-on-surface-variant mt-1.5">Feedback</span>
+<span class="font-caption text-caption text-on-surface-variant text-[11px] leading-tight">Est. 28 Nov</span>
+</div>
+<!-- 4. Approval (Upcoming) -->
+<div class="flex flex-col items-center flex-1 opacity-70">
+<div class="w-8 h-8 rounded-full bg-surface-container-high text-on-surface-variant flex items-center justify-center font-label-sm text-label-sm">
+                  4
+                </div>
+<span class="font-label-sm text-label-sm text-on-surface-variant mt-1.5">Approval</span>
+<span class="font-caption text-caption text-on-surface-variant text-[11px] leading-tight">—</span>
+</div>
+<!-- 5. Award (Upcoming) -->
+<div class="flex flex-col items-center flex-1 opacity-70">
+<div class="w-8 h-8 rounded-full bg-surface-container-high text-on-surface-variant flex items-center justify-center font-label-sm text-label-sm">
+<span class="material-symbols-outlined text-[16px] text-amber-500">star</span>
+</div>
+<span class="font-label-sm text-label-sm text-on-surface-variant mt-1.5">Award</span>
+<span class="font-caption text-caption text-on-surface-variant text-[11px] leading-tight">—</span>
+</div>
+</div>
+</div>
+<!-- Card Progress Info Strip -->
+<div class="bg-surface-container-low/90 border border-surface-variant/40 rounded-lg p-space-sm flex items-center justify-between text-on-surface-variant font-label-sm text-label-sm">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-primary-container text-[18px]">group</span>
+<span>Evaluators assigned: <strong>3 of 3 active</strong></span>
+</div>
+<span class="text-caption font-caption bg-surface-container-highest px-2 py-0.5 rounded text-secondary font-medium">CAT 14:20</span>
+</div>
+<!-- Card Footer Note -->
+<div class="flex items-center justify-between pt-space-xs font-caption text-caption text-on-surface-variant">
+<span>Typical turnaround: 14 days</span>
+<span class="font-semibold text-secondary">Botswana Innovation Pipeline</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- SECTION 2: STATS STRIP -->
+<section class="w-full bg-surface-container-low py-space-xl">
+<div class="max-w-7xl mx-auto px-margin">
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-space-md">
+<!-- Stat Card 1 -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm relative overflow-hidden flex flex-col justify-between">
+<div class="h-1 w-full bg-primary-container absolute top-0 left-0"></div>
+<div class="flex items-center justify-between pt-1">
+<span class="font-label-md text-label-md text-secondary font-medium">Ideas submitted</span>
+<div class="w-8 h-8 rounded-full bg-primary-fixed flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[18px]">lightbulb</span>
+</div>
+</div>
+<div class="my-space-sm">
+<span class="font-headline-xl text-headline-xl font-bold text-primary tracking-tight">248</span>
+</div>
+<p class="font-caption text-caption text-on-surface-variant">
+            +18 this month across all 10 districts
+          </p>
+</div>
+<!-- Stat Card 2 -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm relative overflow-hidden flex flex-col justify-between">
+<div class="h-1 w-full bg-tertiary-container absolute top-0 left-0"></div>
+<div class="flex items-center justify-between pt-1">
+<span class="font-label-md text-label-md text-secondary font-medium">Under review</span>
+<div class="w-8 h-8 rounded-full bg-secondary-container flex items-center justify-center text-tertiary">
+<span class="material-symbols-outlined text-[18px]">rate_review</span>
+</div>
+</div>
+<div class="my-space-sm">
+<span class="font-headline-xl text-headline-xl font-bold text-tertiary tracking-tight">36</span>
+</div>
+<p class="font-caption text-caption text-on-surface-variant">
+            Multi-tier expert committees actively scoring
+          </p>
+</div>
+<!-- Stat Card 3 -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm relative overflow-hidden flex flex-col justify-between">
+<div class="h-1 w-full bg-emerald-700 absolute top-0 left-0"></div>
+<div class="flex items-center justify-between pt-1">
+<span class="font-label-md text-label-md text-secondary font-medium">Approved</span>
+<div class="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-800">
+<span class="material-symbols-outlined text-[18px]">verified</span>
+</div>
+</div>
+<div class="my-space-sm">
+<span class="font-headline-xl text-headline-xl font-bold text-emerald-800 tracking-tight">41</span>
+</div>
+<p class="font-caption text-caption text-on-surface-variant">
+            Advanced to commercialization &amp; mentoring
+          </p>
+</div>
+<!-- Stat Card 4 -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm relative overflow-hidden flex flex-col justify-between">
+<div class="h-1 w-full bg-primary-container absolute top-0 left-0"></div>
+<div class="flex items-center justify-between pt-1">
+<span class="font-label-md text-label-md text-secondary font-medium">Awarded capital</span>
+<div class="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-700">
+<span class="material-symbols-outlined text-[18px]">military_tech</span>
+</div>
+</div>
+<div class="my-space-sm flex items-baseline gap-1">
+<span class="font-headline-xl text-headline-xl font-bold text-primary tracking-tight">P 1,250,000</span>
+</div>
+<p class="font-caption text-caption text-on-surface-variant">
+            Direct seed grants &amp; incubation capital disbursed
+          </p>
+</div>
+</div>
+</div>
+</section>
+<!-- SECTION 3: HOW IT WORKS (5-STEP HORIZONTAL FLOW) -->
+<section class="w-full max-w-7xl mx-auto px-margin py-space-xl lg:py-24" id="how-it-works">
+<!-- Header -->
+<div class="text-center max-w-2xl mx-auto mb-space-xl flex flex-col items-center gap-space-xs">
+<span class="font-caption text-caption uppercase font-semibold tracking-wider text-secondary">Structured Lifecycle</span>
+<h2 class="font-headline-lg text-headline-lg text-primary font-semibold">How it works</h2>
+<p class="font-body-md text-body-md text-on-surface-variant">
+        A transparent, merit-based five-stage journey from concept to enterprise funding.
+      </p>
+</div>
+<!-- 5 Steps Flow -->
+<div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-space-md relative">
+<!-- Step 1 -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex flex-col gap-space-sm relative group hover:shadow-md transition-shadow">
+<div class="w-12 h-12 rounded-lg bg-surface-container flex items-center justify-center text-primary-container font-headline-md text-headline-md font-bold group-hover:bg-primary-container group-hover:text-on-primary transition-colors">
+<span class="material-symbols-outlined text-[24px]">description</span>
+</div>
+<div class="flex items-center justify-between">
+<span class="font-label-sm text-label-sm text-secondary font-bold">STAGE 01</span>
+<span class="font-caption text-caption text-on-surface-variant bg-surface-container px-2 py-0.5 rounded">∼ 20 Mins</span>
+</div>
+<h4 class="font-headline-sm text-headline-sm text-on-surface font-semibold">Submit</h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant leading-relaxed">
+          Register your Omang and submit your concept, market thesis, and pitch deck in under 20 minutes.
+        </p>
+</div>
+<!-- Step 2 -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex flex-col gap-space-sm relative group hover:shadow-md transition-shadow">
+<div class="w-12 h-12 rounded-lg bg-surface-container flex items-center justify-center text-primary-container font-headline-md text-headline-md font-bold group-hover:bg-primary-container group-hover:text-on-primary transition-colors">
+<span class="material-symbols-outlined text-[24px]">troubleshoot</span>
+</div>
+<div class="flex items-center justify-between">
+<span class="font-label-sm text-label-sm text-secondary font-bold">STAGE 02</span>
+<span class="font-caption text-caption text-on-surface-variant bg-surface-container px-2 py-0.5 rounded">7-10 Days</span>
+</div>
+<h4 class="font-headline-sm text-headline-sm text-on-surface font-semibold">Review</h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant leading-relaxed">
+          Independent sector specialists assess viability, commercial scalability, and local job impact.
+        </p>
+</div>
+<!-- Step 3 -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex flex-col gap-space-sm relative group hover:shadow-md transition-shadow">
+<div class="w-12 h-12 rounded-lg bg-surface-container flex items-center justify-center text-primary-container font-headline-md text-headline-md font-bold group-hover:bg-primary-container group-hover:text-on-primary transition-colors">
+<span class="material-symbols-outlined text-[24px]">forum</span>
+</div>
+<div class="flex items-center justify-between">
+<span class="font-label-sm text-label-sm text-secondary font-bold">STAGE 03</span>
+<span class="font-caption text-caption text-on-surface-variant bg-surface-container px-2 py-0.5 rounded">Interactive</span>
+</div>
+<h4 class="font-headline-sm text-headline-sm text-on-surface font-semibold">Feedback</h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant leading-relaxed">
+          Receive detailed, actionable written critiques and guidance directly from committee members.
+        </p>
+</div>
+<!-- Step 4 -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex flex-col gap-space-sm relative group hover:shadow-md transition-shadow">
+<div class="w-12 h-12 rounded-lg bg-surface-container flex items-center justify-center text-primary-container font-headline-md text-headline-md font-bold group-hover:bg-primary-container group-hover:text-on-primary transition-colors">
+<span class="material-symbols-outlined text-[24px]">approval</span>
+</div>
+<div class="flex items-center justify-between">
+<span class="font-label-sm text-label-sm text-secondary font-bold">STAGE 04</span>
+<span class="font-caption text-caption text-on-surface-variant bg-surface-container px-2 py-0.5 rounded">Adjudication</span>
+</div>
+<h4 class="font-headline-sm text-headline-sm text-on-surface font-semibold">Approval</h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant leading-relaxed">
+          Formal adjudication by CEDA executive boards with clear funding recommendation.
+        </p>
+</div>
+<!-- Step 5 -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex flex-col gap-space-sm relative group hover:shadow-md transition-shadow">
+<div class="w-12 h-12 rounded-lg bg-surface-container flex items-center justify-center text-primary-container font-headline-md text-headline-md font-bold group-hover:bg-primary-container group-hover:text-on-primary transition-colors">
+<span class="material-symbols-outlined text-[24px]">workspace_premium</span>
+</div>
+<div class="flex items-center justify-between">
+<span class="font-label-sm text-label-sm text-secondary font-bold">STAGE 05</span>
+<span class="font-caption text-caption text-amber-700 bg-amber-50 px-2 py-0.5 rounded font-semibold">Disbursement</span>
+</div>
+<h4 class="font-headline-sm text-headline-sm text-on-surface font-semibold">Award</h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant leading-relaxed">
+          Grant disbursement in Pula, tailored incubation, and entry into CEDA mentorship networks.
+        </p>
+</div>
+</div>
+</section>
+<!-- SECTION 4: WHO CAN TAKE PART -->
+<section class="w-full bg-surface-container-low py-space-xl">
+<div class="max-w-7xl mx-auto px-margin">
+<!-- Section Header -->
+<div class="flex flex-col md:flex-row md:items-end justify-between mb-space-xl gap-space-md">
+<div>
+<span class="font-caption text-caption uppercase font-semibold tracking-wider text-secondary">Target Cohorts</span>
+<h2 class="font-headline-lg text-headline-lg text-primary font-semibold mt-1">Who can take part</h2>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant max-w-lg">
+          Empowering every tier of Batswana innovators across urban and rural districts.
+        </p>
+</div>
+<!-- 3 Cohort Cards -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-space-lg">
+<!-- Card 1: Citizen Entrepreneurs -->
+<div class="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm flex flex-col justify-between hover:shadow-md transition-all group">
+<div class="flex flex-col gap-space-sm">
+<div class="flex items-center justify-between">
+<span class="inline-flex items-center px-space-xs py-1 rounded bg-secondary-container text-on-secondary-fixed font-label-sm text-label-sm font-semibold">
+                Individual &amp; Co-founders
+              </span>
+<span class="material-symbols-outlined text-primary-container text-[24px]">person_celebrate</span>
+</div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface font-semibold mt-space-xs group-hover:text-primary transition-colors">
+              Citizen entrepreneurs
+            </h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant leading-relaxed">
+              Batswana citizens aged 18+ with novel solutions in agriculture, manufacturing, tourism, and services looking to transform ideas into viable ventures.
+            </p>
+</div>
+<div class="pt-space-md mt-space-md border-t border-surface-variant flex flex-col gap-space-xs font-label-sm text-label-sm text-secondary">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[16px] text-primary">check_circle</span>
+<span>Valid Omang required</span>
+</div>
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[16px] text-primary">check_circle</span>
+<span>100% citizen-owned</span>
+</div>
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[16px] text-primary">check_circle</span>
+<span>Grant &amp; debt options</span>
+</div>
+</div>
+</div>
+<!-- Card 2: Startups and SMEs -->
+<div class="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm flex flex-col justify-between hover:shadow-md transition-all group">
+<div class="flex flex-col gap-space-sm">
+<div class="flex items-center justify-between">
+<span class="inline-flex items-center px-space-xs py-1 rounded bg-primary-fixed text-primary font-label-sm text-label-sm font-semibold">
+                Registered Enterprises
+              </span>
+<span class="material-symbols-outlined text-primary-container text-[24px]">domain</span>
+</div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface font-semibold mt-space-xs group-hover:text-primary transition-colors">
+              Startups and SMEs
+            </h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant leading-relaxed">
+              Early-stage Botswana ventures aiming to test prototypes, scale domestic value addition, or expand export capacity in SADC.
+            </p>
+</div>
+<div class="pt-space-md mt-space-md border-t border-surface-variant flex flex-col gap-space-xs font-label-sm text-label-sm text-secondary">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[16px] text-primary">check_circle</span>
+<span>CIPA &amp; BURS registered</span>
+</div>
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[16px] text-primary">check_circle</span>
+<span>Technology or operational innovation</span>
+</div>
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[16px] text-primary">check_circle</span>
+<span>Up to P 500,000 grant tranche</span>
+</div>
+</div>
+</div>
+<!-- Card 3: Students and Youth -->
+<div class="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm flex flex-col justify-between hover:shadow-md transition-all group">
+<div class="flex flex-col gap-space-sm">
+<div class="flex items-center justify-between">
+<span class="inline-flex items-center px-space-xs py-1 rounded bg-secondary-container text-tertiary font-label-sm text-label-sm font-semibold">
+                Youth &amp; Tertiary
+              </span>
+<span class="material-symbols-outlined text-primary-container text-[24px]">school</span>
+</div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface font-semibold mt-space-xs group-hover:text-primary transition-colors">
+              Students and youth
+            </h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant leading-relaxed">
+              Graduates, vocational trainees, and student researchers from UB, BIUST, BUAN, and BAC with commercially viable innovations.
+            </p>
+</div>
+<div class="pt-space-md mt-space-md border-t border-surface-variant flex flex-col gap-space-xs font-label-sm text-label-sm text-secondary">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[16px] text-primary">check_circle</span>
+<span>Ages 18–35</span>
+</div>
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[16px] text-primary">check_circle</span>
+<span>Fast-track youth adjudication</span>
+</div>
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-[16px] text-primary">check_circle</span>
+<span>Dedicated CEDA incubation mentor</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- SECTION 5: SECURITY AND FAIRNESS BAND -->
+<section class="w-full max-w-7xl mx-auto px-margin py-space-xl">
+<div class="bg-surface-container rounded-2xl p-space-lg lg:p-space-xl shadow-md" style="background: linear-gradient(135deg, rgb(247, 243, 238) 0%, rgb(250, 239, 228) 50%, rgb(241, 237, 232) 100%); border: 1px solid rgba(226, 191, 184, 0.45); box-shadow: rgba(119, 87, 78, 0.08) 0px 10px 30px -8px;">
+<div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-space-md pb-space-lg border-b border-surface-variant">
+<div class="flex items-start gap-space-md">
+<div class="w-12 h-12 rounded-xl bg-primary-container text-on-primary flex items-center justify-center shrink-0 shadow-sm">
+<span class="material-symbols-outlined text-[26px]">gavel</span>
+</div>
+<div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface font-semibold">
+              Your intellectual property is protected. Only assigned reviewers see your submission.
+            </h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1 max-w-2xl">
+              Compliant with the Botswana Data Protection Act. Full confidentiality non-disclosure agreements bind all committee evaluators.
+            </p>
+</div>
+</div>
+<div class="inline-flex items-center gap-1.5 px-space-sm py-1 rounded bg-surface-container-lowest text-secondary font-label-sm text-label-sm shadow-sm font-semibold shrink-0">
+<span class="material-symbols-outlined text-[16px] text-emerald-700">security</span>
+<span>BDPA Certified Compliance</span>
+</div>
+</div>
+<!-- 3 Feature Pillars -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-space-lg pt-space-lg">
+<div class="flex items-start gap-space-sm">
+<div class="w-9 h-9 rounded-lg bg-surface-container-lowest flex items-center justify-center text-primary shrink-0 shadow-sm">
+<span class="material-symbols-outlined text-[20px]">admin_panel_settings</span>
+</div>
+<div>
+<h4 class="font-label-md text-label-md font-semibold text-on-surface">Role-based access</h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1 leading-relaxed">
+              Only appointed evaluators and adjudicators can access your files; reviewers recuse themselves if conflicts exist.
+            </p>
+</div>
+</div>
+<div class="flex items-start gap-space-sm">
+<div class="w-9 h-9 rounded-lg bg-surface-container-lowest flex items-center justify-center text-primary shrink-0 shadow-sm">
+<span class="material-symbols-outlined text-[20px]">history_edu</span>
+</div>
+<div>
+<h4 class="font-label-md text-label-md font-semibold text-on-surface">Immutable audit trail</h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1 leading-relaxed">
+              Every score, comment, and timestamp is logged cryptographically on government-secured servers.
+            </p>
+</div>
+</div>
+<div class="flex items-start gap-space-sm">
+<div class="w-9 h-9 rounded-lg bg-surface-container-lowest flex items-center justify-center text-primary shrink-0 shadow-sm">
+<span class="material-symbols-outlined text-[20px]">visibility_off</span>
+</div>
+<div>
+<h4 class="font-label-md text-label-md font-semibold text-on-surface">Data privacy guaranteed</h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1 leading-relaxed">
+              Personal identification (Omang, TIN, phone) is masked during blind technical assessments.
+            </p>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- SECTION 6: LATEST ANNOUNCEMENTS & DEADLINE NOTICE -->
+<section class="w-full max-w-7xl mx-auto px-margin py-space-xl">
+<!-- Deadline Urgency Notice Banner -->
+<div class="bg-secondary-container rounded-xl p-space-md mb-space-lg flex items-center justify-between flex-wrap gap-space-sm shadow-sm">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-tertiary-container text-[24px]">event_upcoming</span>
+<span class="font-label-md text-label-md text-tertiary font-bold">
+          Submissions close 28 February 2027 • Next evaluation cycle commences 01 March 2027 (CAT)
+        </span>
+</div>
+<a class="font-label-sm text-label-sm text-tertiary hover:underline font-semibold flex items-center gap-1" data-path="guidelines" href="#">
+<span>View intake schedule</span>
+<span class="material-symbols-outlined text-[16px]">chevron_right</span>
+</a>
+</div>
+<!-- Section Heading -->
+<div class="flex items-center justify-between mb-space-lg">
+<div>
+<span class="font-caption text-caption uppercase font-semibold tracking-wider text-secondary">Ecosystem Briefs</span>
+<h2 class="font-headline-lg text-headline-lg text-primary font-semibold">Latest announcements</h2>
+</div>
+<a class="font-label-md text-label-md text-secondary hover:text-primary transition-colors flex items-center gap-1 font-semibold" href="#">
+<span>All notices</span>
+<span class="material-symbols-outlined text-[18px]">arrow_right_alt</span>
+</a>
+</div>
+<!-- 2 Announcement Cards -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-space-lg">
+<!-- Announcement 1 -->
+<div class="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow group">
+<div class="flex flex-col gap-space-xs">
+<div class="flex items-center justify-between">
+<span class="px-space-xs py-0.5 rounded bg-tertiary-fixed text-tertiary-container font-label-sm text-label-sm font-semibold">
+              Special Call
+            </span>
+<span class="font-caption text-caption text-on-surface-variant">10 November 2026</span>
+</div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface font-semibold mt-space-xs group-hover:text-primary transition-colors">
+            2026/2027 Agri-Tech &amp; Food Security Challenge Opened
+          </h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant leading-relaxed">
+            Special funding pool of P 5,000,000 designated for smart water conservation and drought-resistant livestock solutions.
+          </p>
+</div>
+<div class="pt-space-md flex items-center gap-space-xs text-primary font-label-sm text-label-sm font-semibold">
+<span>Read eligibility criteria</span>
+<span class="material-symbols-outlined text-[16px] group-hover:translate-x-1 transition-transform">arrow_forward</span>
+</div>
+</div>
+<!-- Announcement 2 -->
+<div class="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow group">
+<div class="flex flex-col gap-space-xs">
+<div class="flex items-center justify-between">
+<span class="px-space-xs py-0.5 rounded bg-surface-container-highest text-secondary font-label-sm text-label-sm font-semibold">
+              Outreach
+            </span>
+<span class="font-caption text-caption text-on-surface-variant">04 November 2026</span>
+</div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface font-semibold mt-space-xs group-hover:text-primary transition-colors">
+            CEDA Nationwide Innovation Workshops in Francistown &amp; Maun
+          </h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant leading-relaxed">
+            Join regional CEDA officers for hands-on application coaching and pitch deck preparation sessions.
+          </p>
+</div>
+<div class="pt-space-md flex items-center gap-space-xs text-primary font-label-sm text-label-sm font-semibold">
+<span>Register for clinic</span>
+<span class="material-symbols-outlined text-[16px] group-hover:translate-x-1 transition-transform">arrow_forward</span>
+</div>
+</div>
+</div>
+</section>
+<!-- SECTION 7: CALL-TO-ACTION BAND -->
+<section class="w-full bg-surface-container-low py-space-xl lg:py-24">
+<div class="max-w-4xl mx-auto px-margin text-center flex flex-col items-center gap-space-md">
+<span class="font-label-sm text-label-sm px-space-sm py-1 rounded-full bg-surface-container text-tertiary font-bold tracking-wide">
+        Take The Next Step
+      </span>
+<h2 class="font-headline-xl text-headline-xl text-primary font-semibold tracking-tight">
+        Ready to submit your innovation?
+      </h2>
+<p class="font-body-md text-body-md text-on-surface-variant max-w-xl">
+        Turn your visionary idea into a thriving Botswana enterprise. Create your free account in less than two minutes.
+      </p>
+<div class="flex flex-col sm:flex-row items-center gap-space-md pt-space-xs">
+<a class="inline-flex items-center justify-center min-h-[44px] px-space-xl rounded-lg bg-primary-container text-on-primary font-label-md text-label-md font-semibold hover:bg-primary transition-all shadow-md" data-path="register" href="#">
+          Register and start submission
+        </a>
+<a class="inline-flex items-center gap-1 font-label-md text-label-md text-secondary hover:text-primary transition-colors underline font-medium" href="#">
+<span class="material-symbols-outlined text-[18px]">download</span>
+<span>Download guidelines &amp; criteria (PDF, 2.4 MB)</span>
+</a>
+</div>
+</div>
+</section>
+<!-- FLOATING LIVE CHAT WIDGET -->
+<div class="fixed bottom-6 right-6 z-40 hidden sm:flex">
+<button class="flex items-center gap-space-sm px-4 py-2.5 rounded-full bg-surface-container-lowest text-secondary shadow-xl hover:shadow-2xl transition-all cursor-pointer" type="button">
+<div class="relative">
+<div class="w-8 h-8 rounded-full bg-primary-container text-on-primary flex items-center justify-center">
+<span class="material-symbols-outlined text-[18px]">support_agent</span>
+</div>
+<span class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-600 ring-2 ring-white"></span>
+</div>
+<div class="flex flex-col text-left">
+<span class="font-label-sm text-label-sm font-bold text-on-surface">Chat with CEDA</span>
+<span class="font-caption text-caption text-on-surface-variant text-[11px] leading-tight">Working days 09:00 – 16:00 CAT</span>
+</div>
+</button>
+</div>
+</div></main><footer class="w-full bg-inverse-surface text-inverse-on-surface pt-space-xl pb-space-lg"><div class="max-w-7xl mx-auto px-margin"><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-space-xl pb-space-xl border-b border-on-surface-variant/20"><div class="flex flex-col gap-space-md"><p class="font-body-md text-body-md text-inverse-on-surface/90 italic font-medium">Finance. Develop. Sustain.</p><span class="inline-flex items-center w-fit font-label-sm text-label-sm px-space-sm py-1 rounded-full bg-tertiary-container/40 text-tertiary-fixed font-bold tracking-wide">#KaeKapaKae</span><p class="font-body-sm text-body-sm text-inverse-on-surface/75">Empowering citizen entrepreneurs across Botswana through impactful funding, advisory, and ecosystem innovation support.</p></div><div class="flex flex-col gap-space-sm"><h3 class="font-headline-sm text-headline-sm text-inverse-on-surface font-semibold mb-space-xs">Portal Links</h3><ul class="flex flex-col gap-space-sm font-body-sm text-body-sm"><li data-active-classes="text-primary-fixed-dim font-semibold"><a class="text-inverse-on-surface/80 hover:text-inverse-on-surface transition-colors" data-path="home" href="#">Home Overview</a></li><li data-active-classes="text-primary-fixed-dim font-semibold"><a class="text-inverse-on-surface/80 hover:text-inverse-on-surface transition-colors" data-path="guidelines" href="#">Application Guidelines</a></li><li data-active-classes="text-primary-fixed-dim font-semibold"><a class="text-inverse-on-surface/80 hover:text-inverse-on-surface transition-colors" data-path="faqs" href="#">Frequently Asked Questions</a></li><li data-active-classes="text-primary-fixed-dim font-semibold"><a class="text-inverse-on-surface/80 hover:text-inverse-on-surface transition-colors" data-path="help-center" href="#">Help &amp; Contact Center</a></li></ul></div><div class="flex flex-col gap-space-sm"><h3 class="font-headline-sm text-headline-sm text-inverse-on-surface font-semibold mb-space-xs">Botswana Innovation Ecosystem</h3><ul class="flex flex-col gap-space-sm font-body-sm text-body-sm"><li class="text-inverse-on-surface/80">CIPA Business Registration</li><li class="text-inverse-on-surface/80">BURS Tax Compliance</li><li class="text-inverse-on-surface/80">Botswana Digital &amp; Innovation Hub (BDIH)</li><li class="text-inverse-on-surface/80">District Entrepreneurship Advisory</li><li class="text-inverse-on-surface/80">Youth &amp; Agri-Business Grants</li></ul></div><div class="flex flex-col gap-space-sm"><h3 class="font-headline-sm text-headline-sm text-inverse-on-surface font-semibold mb-space-xs">Contact &amp; Help</h3><div class="flex flex-col gap-space-xs font-body-sm text-body-sm text-inverse-on-surface/85"><p class="font-label-md text-label-md text-inverse-on-surface font-semibold">Gaborone Head Office</p><p>Plot 54350 PG Matante Road, CBD</p><p>Gaborone, Botswana</p><p class="mt-space-xs font-medium">Tel: +267 358 7000 / +267 364 7777</p><p>Email: <a class="underline hover:text-primary-fixed-dim transition-colors" href="mailto:enquiries@ceda.co.bw">enquiries@ceda.co.bw</a></p><p class="font-caption text-caption text-inverse-on-surface/70 mt-space-xs">Operating Hours: 07:30 - 16:30 CAT (Mon - Fri)</p></div></div></div><div class="pt-space-lg flex flex-col md:flex-row items-center justify-between gap-space-md font-body-sm text-body-sm text-inverse-on-surface/75"><div class="flex flex-wrap items-center gap-space-md"><a class="hover:text-inverse-on-surface transition-colors" data-path="privacy-notice" href="#">Privacy Notice</a><span>•</span><a class="hover:text-inverse-on-surface transition-colors" data-path="terms-of-service" href="#">Terms of Service</a><span>•</span><a class="hover:text-inverse-on-surface transition-colors" data-path="disclaimer" href="#">Disclaimer</a><span>•</span><span class="text-inverse-on-surface/90 font-medium">Botswana Data Protection Act (BDPA) Compliant</span></div><div class="text-inverse-on-surface/70">© 2026 CEDA. All rights reserved.</div></div></div></footer>
+
+</body></html>

@@ -1,0 +1,6 @@
+{
+  "name": "CEDA Innovation Management Portal",
+  "description": "Botswana Citizen Entrepreneurial Development Agency (CEDA) Innovation Management Portal - Authentication, Verification, and Role-Based Lifecycle Prototype.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

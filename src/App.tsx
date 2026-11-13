@@ -1,0 +1,243 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useEffect } from 'react';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { Header } from './components/common/Header';
+import { Footer } from './components/common/Footer';
+import { DemoRoleSwitcher } from './components/common/DemoRoleSwitcher';
+import { IdleTimeoutModal } from './components/common/IdleTimeoutModal';
+import { RouteGuard } from './components/common/RouteGuard';
+import { seedFirestoreCollections } from './services/seedFirestore';
+
+// Pages
+import { LandingPage } from './components/pages/LandingPage';
+import { RegisterPage } from './components/pages/RegisterPage';
+import { OtpVerificationPage } from './components/pages/OtpVerificationPage';
+import { LoginPage } from './components/pages/LoginPage';
+import { ForgotPasswordPage } from './components/pages/ForgotPasswordPage';
+import { ResetPasswordPage } from './components/pages/ResetPasswordPage';
+import { SessionsPage } from './components/pages/SessionsPage';
+import { ForbiddenPage } from './components/pages/ForbiddenPage';
+import { NotFoundPage } from './components/pages/NotFoundPage';
+import { GuidelinesPage, FaqsPage, HelpCenterPage } from './components/pages/InfoPages';
+
+// Role Dashboards
+import { SubmitterDashboard } from './components/pages/dashboards/SubmitterDashboard';
+import { SubmitterComingSoonPage } from './components/pages/dashboards/SubmitterComingSoonPage';
+import { SubmitterLayout } from './components/submitter/SubmitterLayout';
+import { EvaluatorDashboard } from './components/pages/dashboards/EvaluatorDashboard';
+import { AdjudicatorDashboard } from './components/pages/dashboards/AdjudicatorDashboard';
+import { AdminDashboard } from './components/pages/dashboards/AdminDashboard';
+import { AdminUsersPage } from './components/pages/dashboards/AdminUsersPage';
+import { AdminComingSoonPage } from './components/pages/dashboards/AdminComingSoonPage';
+import { StakeholderView } from './components/pages/dashboards/StakeholderView';
+import { ADMIN_NAV_ITEMS, AdminRoutePath } from './data/adminConfig';
+
+const ADMIN_COMING_SOON_PATHS = new Set<string>(
+  ADMIN_NAV_ITEMS.filter((item) => item.path !== '/admin' && item.path !== '/admin/users').map(
+    (item) => item.path
+  )
+);
+
+const SUBMITTER_COMING_SOON_PATHS = new Set<string>([
+  '/submit',
+  '/submissions',
+  '/notifications',
+  '/profile',
+]);
+
+const AppContent: React.FC = () => {
+  const { currentRoute, setCurrentRoute, currentUser, isAuthenticated } = useAuth();
+
+  // Handle browser back/forward buttons & seed Firestore on mount
+  useEffect(() => {
+    seedFirestoreCollections().catch(() => {
+      // ignore offline errors
+    });
+
+    const handlePopState = () => {
+      const path = window.location.pathname + window.location.search;
+      setCurrentRoute(path);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [setCurrentRoute]);
+
+  // Sync window.location when currentRoute changes
+  useEffect(() => {
+    if (window.location.pathname !== currentRoute.split('?')[0]) {
+      window.history.pushState(null, '', currentRoute);
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [currentRoute]);
+
+  const cleanPath = currentRoute.split('?')[0];
+  const isAdminRoute =
+    cleanPath === '/admin' ||
+    cleanPath.startsWith('/admin/') ||
+    cleanPath === '/dashboard/admin';
+  const showAdminShell = Boolean(isAdminRoute && isAuthenticated && currentUser?.role === 'ADMIN');
+
+  const isSubmitterRoute =
+    cleanPath === '/dashboard' ||
+    cleanPath === '/dashboard/submitter' ||
+    SUBMITTER_COMING_SOON_PATHS.has(cleanPath) ||
+    cleanPath.startsWith('/submissions/') ||
+    (cleanPath === '/help-center' && currentUser?.role === 'SUBMITTER');
+  const showSubmitterShell = Boolean(
+    isSubmitterRoute &&
+      isAuthenticated &&
+      (currentUser?.role === 'SUBMITTER' || currentUser?.role === 'ADMIN')
+  );
+  const hidePublicChrome = showAdminShell || showSubmitterShell;
+
+  const renderCurrentPage = () => {
+    if (ADMIN_COMING_SOON_PATHS.has(cleanPath)) {
+      return (
+        <RouteGuard allowedRoles={['ADMIN']}>
+          <AdminComingSoonPage routePath={cleanPath as AdminRoutePath} />
+        </RouteGuard>
+      );
+    }
+
+    if (
+      SUBMITTER_COMING_SOON_PATHS.has(cleanPath) ||
+      cleanPath.startsWith('/submissions/')
+    ) {
+      return (
+        <RouteGuard allowedRoles={['SUBMITTER', 'ADMIN']}>
+          <SubmitterComingSoonPage routePath={cleanPath} />
+        </RouteGuard>
+      );
+    }
+
+    switch (cleanPath) {
+      case '/':
+      case '':
+        return <LandingPage />;
+
+      case '/register':
+        return <RegisterPage />;
+
+      case '/otp-verification':
+      case '/verify-otp':
+        return <OtpVerificationPage />;
+
+      case '/login':
+        return <LoginPage />;
+
+      case '/forgot-password':
+        return <ForgotPasswordPage />;
+
+      case '/reset-password':
+        return <ResetPasswordPage />;
+
+      case '/sessions':
+        return (
+          <RouteGuard>
+            <SessionsPage />
+          </RouteGuard>
+        );
+
+      case '/guidelines':
+        return <GuidelinesPage />;
+
+      case '/faqs':
+        return <FaqsPage />;
+
+      case '/help-center':
+        if (isAuthenticated && currentUser?.role === 'SUBMITTER') {
+          return (
+            <SubmitterLayout>
+              <HelpCenterPage />
+            </SubmitterLayout>
+          );
+        }
+        return <HelpCenterPage />;
+
+      case '/dashboard':
+      case '/dashboard/submitter':
+        return (
+          <RouteGuard allowedRoles={['SUBMITTER', 'ADMIN']}>
+            <SubmitterDashboard />
+          </RouteGuard>
+        );
+
+      case '/dashboard/evaluator':
+        return (
+          <RouteGuard allowedRoles={['EVALUATOR', 'ADMIN']}>
+            <EvaluatorDashboard />
+          </RouteGuard>
+        );
+
+      case '/dashboard/adjudicator':
+        return (
+          <RouteGuard allowedRoles={['ADJUDICATOR', 'ADMIN']}>
+            <AdjudicatorDashboard />
+          </RouteGuard>
+        );
+
+      case '/admin':
+      case '/dashboard/admin':
+        return (
+          <RouteGuard allowedRoles={['ADMIN']}>
+            <AdminDashboard />
+          </RouteGuard>
+        );
+
+      case '/admin/users':
+        return (
+          <RouteGuard allowedRoles={['ADMIN']}>
+            <AdminUsersPage />
+          </RouteGuard>
+        );
+
+      case '/dashboard/stakeholder':
+        return (
+          <RouteGuard allowedRoles={['STAKEHOLDER', 'ADMIN']}>
+            <StakeholderView />
+          </RouteGuard>
+        );
+
+      case '/403':
+        return <ForbiddenPage />;
+
+      case '/404':
+        return <NotFoundPage />;
+
+      default:
+        if (cleanPath.startsWith('/admin/')) {
+          return (
+            <RouteGuard allowedRoles={['ADMIN']}>
+              <NotFoundPage />
+            </RouteGuard>
+          );
+        }
+        return <NotFoundPage />;
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col font-sans bg-[#fdf9f4] text-[#31302d]">
+      {!hidePublicChrome && <Header />}
+      <main className={hidePublicChrome ? 'flex-1' : 'flex-1 pt-20'}>
+        {renderCurrentPage()}
+      </main>
+      {!hidePublicChrome && <Footer />}
+      <IdleTimeoutModal />
+      <DemoRoleSwitcher />
+    </div>
+  );
+};
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
+  );
+}

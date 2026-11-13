@@ -1,0 +1,82 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #7c0700;
+  --color-primary-container: #a02010;
+  --color-primary-hover: #861a0d;
+  --color-on-primary: #ffffff;
+  --color-on-primary-container: #ffb4a7;
+  
+  --color-secondary: #77574e;
+  --color-secondary-cocoa: #5e4038;
+  --color-secondary-container: #ffd3c8;
+  --color-on-secondary: #ffffff;
+  --color-on-secondary-container: #7a5950;
+  
+  --color-tertiary: #6d2200;
+  --color-tertiary-container: #943100;
+  --color-tertiary-fixed: #ffdbcf;
+  --color-tertiary-fixed-dim: #ffb59a;
+  
+  --color-surface: #fdf9f4;
+  --color-surface-dim: #ddd9d5;
+  --color-surface-bright: #fdf9f4;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f7f3ee;
+  --color-surface-container: #f1ede8;
+  --color-surface-container-high: #ebe8e3;
+  --color-surface-container-highest: #e6e2dd;
+  
+  --color-on-surface: #1c1c19;
+  --color-on-surface-variant: #5a413c;
+  --color-inverse-surface: #31302d;
+  --color-inverse-on-surface: #f4f0eb;
+  
+  --color-outline: #8d706b;
+  --color-outline-variant: #e2bfb8;
+  
+  --color-error: #ba1a1a;
+  --color-error-container: #ffdad6;
+  --color-on-error: #ffffff;
+  
+  --color-ceda-amber: #f8a018;
+  --color-ceda-gold: #f8c808;
+  --color-ceda-green: #2e7d32;
+  
+  --font-headline: 'Montserrat', sans-serif;
+  --font-body: 'Inter', sans-serif;
+}
+
+:root {
+  font-family: 'Inter', sans-serif;
+}
+
+h1, h2, h3, h4, .font-headline {
+  font-family: 'Montserrat', sans-serif;
+}
+
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  display: inline-block;
+  vertical-align: middle;
+  line-height: 1;
+}
+
+.material-symbols-filled {
+  font-family: 'Material Symbols Outlined';
+  font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24;
+  display: inline-block;
+  vertical-align: middle;
+  line-height: 1;
+}
+
+/* Accessible focus ring across all controls */
+:focus-visible {
+  outline: 2px solid #f8a018 !important;
+  outline-offset: 2px !important;
+}
+
+/* Tabular figures for numerals, Omang, currency and counters */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
