@@ -268,16 +268,36 @@ function getLocalNotificationsForUser(uid: string): SubmitterNotification[] {
   return DEFAULT_DEMO_NOTIFICATIONS.filter((item) => item.userId === uid);
 }
 
-function canQueryFirestoreForUser(uid?: string): boolean {
-  if (!db || firebaseConfig.apiKey.includes('MockKey')) return false;
-  if (!auth?.currentUser) return false;
+async function ensureFirestoreReadyForUser(uid?: string): Promise<boolean> {
+  if (!db || !auth || firebaseConfig.apiKey.includes('MockKey')) return false;
+  try {
+    if (typeof auth.authStateReady === 'function') {
+      await auth.authStateReady();
+    }
+  } catch {
+    // ignore authStateReady errors
+  }
+  if (!auth.currentUser) return false;
   if (uid && auth.currentUser.uid !== uid) return false;
   return true;
 }
 
-function logFirestorePermissionWarning(
+function getFirestoreAuthFailureReason(uid?: string): string {
+  if (!db || !auth || firebaseConfig.apiKey.includes('MockKey')) {
+    return 'Firebase is not configured. Check your VITE_FIREBASE_* environment variables.';
+  }
+  if (!auth.currentUser) {
+    return 'Your Firebase sign-in session is not active. Please sign out and sign back in with your email and password so drafts save to Firestore.';
+  }
+  if (uid && auth.currentUser.uid !== uid) {
+    return 'Your active Firebase account does not match the current portal profile. Please sign out and sign back in.';
+  }
+  return 'Unable to connect to Firestore.';
+}
+
+function logFirestorePermissionError(
   error: unknown,
-  operationType: 'get' | 'list',
+  operationType: 'get' | 'list' | 'create' | 'update' | 'delete' | 'write',
   path: string
 ): void {
   const currentAuthUser = auth?.currentUser;
@@ -295,13 +315,13 @@ function logFirestorePermissionWarning(
       providerInfo:
         currentAuthUser?.providerData?.map(
           (provider: { providerId?: string | null; email?: string | null }) => ({
-            providerId: provider.providerId,
-            email: provider.email,
+            providerId: provider.providerId ?? null,
+            email: provider.email ?? null,
           })
         ) || [],
     },
   };
-  console.warn('Firestore permission fallback active:', JSON.stringify(errInfo));
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
 }
 
 function mapDocToSubmitterIdea(
@@ -362,8 +382,9 @@ function isPermissionDeniedError(err: unknown): boolean {
 export async function fetchSubmitterIdeas(uid: string): Promise<SubmitterIdea[]> {
   if (!uid) return [];
 
-  if (!canQueryFirestoreForUser(uid)) {
-    return getLocalIdeasForUser(uid);
+  const firestoreReady = await ensureFirestoreReadyForUser(uid);
+  if (!firestoreReady) {
+    return firebaseConfig.apiKey.includes('MockKey') ? getLocalIdeasForUser(uid) : [];
   }
 
   const list: SubmitterIdea[] = [];
@@ -379,7 +400,7 @@ export async function fetchSubmitterIdeas(uid: string): Promise<SubmitterIdea[]>
     });
   } catch (err) {
     if (isPermissionDeniedError(err)) {
-      logFirestorePermissionWarning(err, 'list', 'ideas');
+      logFirestorePermissionError(err, 'list', 'ideas');
     } else {
       throw err instanceof Error ? err : new Error(String(err));
     }
@@ -399,9 +420,11 @@ export async function fetchSubmitterIdeas(uid: string): Promise<SubmitterIdea[]>
       ideasSucceeded = true;
     } catch (subErr) {
       if (isPermissionDeniedError(subErr)) {
-        logFirestorePermissionWarning(subErr, 'list', 'submissions');
+        logFirestorePermissionError(subErr, 'list', 'submissions');
         if (!ideasSucceeded) {
-          return getLocalIdeasForUser(uid);
+          throw new Error(
+            `Firestore permissions prevented loading your submissions from "ideas". Publish firestore.rules to your Firebase project (${firebaseConfig.projectId}) and retry.`
+          );
         }
       } else if (!ideasSucceeded) {
         throw subErr instanceof Error ? subErr : new Error(String(subErr));
@@ -420,7 +443,8 @@ export async function fetchSubmitterIdeas(uid: string): Promise<SubmitterIdea[]>
 
 export async function fetchSubmitterNotifications(uid: string): Promise<SubmitterNotification[]> {
   if (!uid) return [];
-  if (!canQueryFirestoreForUser(uid)) {
+  const firestoreReady = await ensureFirestoreReadyForUser(uid);
+  if (!firestoreReady) {
     return getLocalNotificationsForUser(uid);
   }
   try {
@@ -462,7 +486,9 @@ export async function fetchSubmitterNotifications(uid: string): Promise<Submitte
 }
 
 export async function fetchOpenCall(): Promise<OpenCallData> {
-  if (!canQueryFirestoreForUser()) return DEFAULT_OPEN_CALL;
+  if (!db || firebaseConfig.apiKey.includes('MockKey') || !auth?.currentUser) {
+    return DEFAULT_OPEN_CALL;
+  }
   try {
     const snap = await getDocs(collection(db, 'calls'));
     if (snap.empty) return DEFAULT_OPEN_CALL;
@@ -738,57 +764,47 @@ export function buildApplicantPrefillFromProfile(profile: UserProfile | null): W
   };
 }
 
-function readLocalDrafts(): IdeaDraft[] {
+function readLegacyLocalDraftForUser(uid: string): IdeaDraft | null {
   try {
     const raw = localStorage.getItem(LOCAL_DRAFTS_KEY);
-    if (!raw) return [];
+    if (!raw) return null;
     const parsed = JSON.parse(raw) as IdeaDraft[];
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return null;
+    return (
+      parsed
+        .filter((d) => d.submitterId === uid && d.status === 'draft')
+        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0] ||
+      null
+    );
   } catch {
-    return [];
+    return null;
   }
 }
 
-function writeLocalDrafts(drafts: IdeaDraft[]): void {
+function clearLocalDraftsForUser(uid: string): void {
   try {
-    localStorage.setItem(LOCAL_DRAFTS_KEY, JSON.stringify(drafts));
-  } catch {
-    // ignore storage errors
-  }
-}
-
-function syncDraftIntoLocalIdeasSummary(draft: IdeaDraft): void {
-  try {
-    const raw = localStorage.getItem(LOCAL_IDEAS_KEY);
-    const existing: SubmitterIdea[] = raw ? (JSON.parse(raw) as SubmitterIdea[]) : [...DEFAULT_DEMO_IDEAS];
-    const idx = existing.findIndex((item) => item.id === draft.id);
-    const title =
-      draft.idea?.title?.trim() ||
-      (draft.applicant.type === 'business' && draft.applicant.business.tradingName.trim()
-        ? `${draft.applicant.business.tradingName.trim()} Proposal (Draft)`
-        : 'New Innovation Proposal (Draft)');
-    const sector = draft.idea?.sector?.trim() || 'General Innovation';
-    const summary: SubmitterIdea = {
-      id: draft.id,
-      submitterId: draft.submitterId,
-      title,
-      reference: draft.id.slice(0, 12).toUpperCase(),
-      sector,
-      location: [draft.applicant.town, draft.applicant.district].filter(Boolean).join(', ') || 'Botswana',
-      status: draft.status,
-      stageStep: 1,
-      requestedAmountBwp: null,
-      dayInStage: 1,
-      feedbackDeadlineIso: null,
-      createdAt: draft.createdAt,
-      updatedAt: draft.updatedAt,
-    };
-    if (idx >= 0) {
-      existing[idx] = { ...existing[idx], ...summary };
-    } else {
-      existing.unshift(summary);
+    const raw = localStorage.getItem(LOCAL_DRAFTS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as IdeaDraft[];
+      if (Array.isArray(parsed)) {
+        const remaining = parsed.filter((d) => d.submitterId !== uid);
+        if (remaining.length === 0) {
+          localStorage.removeItem(LOCAL_DRAFTS_KEY);
+        } else {
+          localStorage.setItem(LOCAL_DRAFTS_KEY, JSON.stringify(remaining));
+        }
+      }
     }
-    localStorage.setItem(LOCAL_IDEAS_KEY, JSON.stringify(existing));
+    const rawIdeas = localStorage.getItem(LOCAL_IDEAS_KEY);
+    if (rawIdeas) {
+      const parsedIdeas = JSON.parse(rawIdeas) as SubmitterIdea[];
+      if (Array.isArray(parsedIdeas)) {
+        const cleaned = parsedIdeas.filter(
+          (item) => !(item.submitterId === uid && item.id.startsWith('draft-'))
+        );
+        localStorage.setItem(LOCAL_IDEAS_KEY, JSON.stringify(cleaned));
+      }
+    }
   } catch {
     // ignore storage errors
   }
@@ -900,7 +916,8 @@ export async function loadUserProfileForWizard(
   fallbackUser: UserProfile | null
 ): Promise<UserProfile | null> {
   if (!uid) return fallbackUser;
-  if (!canQueryFirestoreForUser(uid)) {
+  const firestoreReady = await ensureFirestoreReadyForUser(uid);
+  if (!firestoreReady) {
     return fallbackUser;
   }
   try {
@@ -922,7 +939,7 @@ export async function loadUserProfileForWizard(
 }
 
 function buildFirestoreIdeaPayload(draft: IdeaDraft, nowIso: string): Record<string, unknown> {
-  return {
+  const payload: Record<string, unknown> = {
     id: draft.id,
     submitterId: draft.submitterId,
     status: 'draft',
@@ -933,6 +950,10 @@ function buildFirestoreIdeaPayload(draft: IdeaDraft, nowIso: string): Record<str
     createdAt: draft.createdAt || nowIso,
     updatedAt: nowIso,
   };
+  if (draft.idea) {
+    payload.idea = draft.idea;
+  }
+  return payload;
 }
 
 function buildFirestoreSubmissionDraftPayload(
@@ -940,16 +961,17 @@ function buildFirestoreSubmissionDraftPayload(
   nowIso: string
 ): Record<string, unknown> {
   const title =
-    draft.applicant.type === 'business' && draft.applicant.business.tradingName.trim()
+    draft.idea?.title?.trim() ||
+    (draft.applicant.type === 'business' && draft.applicant.business.tradingName.trim()
       ? `${draft.applicant.business.tradingName.trim()} Proposal (Draft)`
-      : 'New Innovation Proposal (Draft)';
+      : 'New Innovation Proposal (Draft)');
   const suffix = draft.id.replace(/[^a-zA-Z0-9]/g, '').slice(-6).toUpperCase() || '000001';
-  return {
+  const payload: Record<string, unknown> = {
     id: draft.id,
     trackingCode: `CEDA-DRAFT-${suffix}`,
     submitterId: draft.submitterId,
     title,
-    sector: 'General Innovation',
+    sector: draft.idea?.sector?.trim() || 'General Innovation',
     district: draft.applicant.district || 'Botswana',
     town: draft.applicant.town || '',
     requestedCapital: 0,
@@ -962,6 +984,10 @@ function buildFirestoreSubmissionDraftPayload(
     createdAt: draft.createdAt || nowIso,
     updatedAt: nowIso,
   };
+  if (draft.idea) {
+    payload.idea = draft.idea;
+  }
+  return payload;
 }
 
 export async function findExistingIdeaDraft(
@@ -971,105 +997,98 @@ export async function findExistingIdeaDraft(
   const prefill = buildApplicantPrefillFromProfile(profile);
   const nowIso = new Date().toISOString();
 
-  if (canQueryFirestoreForUser(uid)) {
-    // 1. Primary collection: `ideas`
-    try {
-      const snap = await getDocs(query(collection(db, 'ideas'), where('submitterId', '==', uid)));
-      const drafts: IdeaDraft[] = [];
+  const firestoreReady = await ensureFirestoreReadyForUser(uid);
+  if (!firestoreReady) {
+    throw new Error(getFirestoreAuthFailureReason(uid));
+  }
 
-      snap.forEach((docSnap) => {
-        const raw = docSnap.data() as Record<string, unknown>;
-        if (String(raw.status || '').toLowerCase() === 'draft') {
-          drafts.push({
-            id: docSnap.id,
-            submitterId: uid,
-            status: 'draft',
-            currentStep: Math.max(1, Math.min(4, Number(raw.currentStep) || 1)),
-            applicant: normalizeDraftApplicant(
-              raw.applicant as Record<string, unknown> | undefined,
-              prefill
-            ),
-            idea: normalizeDraftIdea(raw.idea as Record<string, unknown> | undefined),
-            createdAt: normalizeTimestamp(raw.createdAt) || nowIso,
-            updatedAt: normalizeTimestamp(raw.updatedAt) || nowIso,
-            storageTarget: 'ideas',
-          });
-        }
-      });
+  let ideasDenied = false;
 
-      if (drafts.length > 0) {
-        drafts.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-        const latest = drafts[0];
-        const allLocal = readLocalDrafts().filter((d) => d.id !== latest.id);
-        writeLocalDrafts([latest, ...allLocal]);
-        return latest;
+  // 1. Primary collection: `ideas`
+  try {
+    const snap = await getDocs(query(collection(db, 'ideas'), where('submitterId', '==', uid)));
+    const drafts: IdeaDraft[] = [];
+
+    snap.forEach((docSnap) => {
+      const raw = docSnap.data() as Record<string, unknown>;
+      if (String(raw.status || '').toLowerCase() === 'draft') {
+        drafts.push({
+          id: docSnap.id,
+          submitterId: uid,
+          status: 'draft',
+          currentStep: Math.max(1, Math.min(4, Number(raw.currentStep) || 1)),
+          applicant: normalizeDraftApplicant(
+            raw.applicant as Record<string, unknown> | undefined,
+            prefill
+          ),
+          idea: normalizeDraftIdea(raw.idea as Record<string, unknown> | undefined),
+          createdAt: normalizeTimestamp(raw.createdAt) || nowIso,
+          updatedAt: normalizeTimestamp(raw.updatedAt) || nowIso,
+          storageTarget: 'ideas',
+        });
       }
-    } catch (err) {
-      if (!isPermissionDeniedError(err)) {
-        throw err instanceof Error ? err : new Error('Unable to load your draft.');
-      }
-      logFirestorePermissionWarning(err, 'list', 'ideas');
+    });
+
+    if (drafts.length > 0) {
+      drafts.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      clearLocalDraftsForUser(uid);
+      return drafts[0];
     }
+  } catch (err) {
+    if (!isPermissionDeniedError(err)) {
+      throw err instanceof Error ? err : new Error('Unable to load your draft from Firestore.');
+    }
+    ideasDenied = true;
+    logFirestorePermissionError(err, 'list', 'ideas');
+  }
 
-    // 2. Fallback Firestore collection: `submissions`
-    try {
-      const subSnap = await getDocs(
-        query(collection(db, 'submissions'), where('submitterId', '==', uid))
+  // 2. Fallback Firestore collection: `submissions`
+  try {
+    const subSnap = await getDocs(
+      query(collection(db, 'submissions'), where('submitterId', '==', uid))
+    );
+    const subDrafts: IdeaDraft[] = [];
+
+    subSnap.forEach((docSnap) => {
+      const raw = docSnap.data() as Record<string, unknown>;
+      if (String(raw.status || '').toLowerCase() === 'draft') {
+        subDrafts.push({
+          id: docSnap.id,
+          submitterId: uid,
+          status: 'draft',
+          currentStep: Math.max(1, Math.min(4, Number(raw.currentStep) || 1)),
+          applicant: normalizeDraftApplicant(
+            raw.applicant as Record<string, unknown> | undefined,
+            prefill
+          ),
+          idea: normalizeDraftIdea(raw.idea as Record<string, unknown> | undefined),
+          createdAt: normalizeTimestamp(raw.createdAt) || nowIso,
+          updatedAt: normalizeTimestamp(raw.updatedAt) || nowIso,
+          storageTarget: 'submissions',
+        });
+      }
+    });
+
+    if (subDrafts.length > 0) {
+      subDrafts.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      clearLocalDraftsForUser(uid);
+      return subDrafts[0];
+    }
+  } catch (subErr) {
+    if (!isPermissionDeniedError(subErr)) {
+      throw subErr instanceof Error
+        ? subErr
+        : new Error('Unable to load your draft from Firestore.');
+    }
+    logFirestorePermissionError(subErr, 'list', 'submissions');
+    if (ideasDenied) {
+      throw new Error(
+        `Missing Firestore permissions for "ideas". Publish the updated firestore.rules to your Firebase project (${firebaseConfig.projectId}) and retry.`
       );
-      const subDrafts: IdeaDraft[] = [];
-
-      subSnap.forEach((docSnap) => {
-        const raw = docSnap.data() as Record<string, unknown>;
-        if (String(raw.status || '').toLowerCase() === 'draft') {
-          subDrafts.push({
-            id: docSnap.id,
-            submitterId: uid,
-            status: 'draft',
-            currentStep: Math.max(1, Math.min(4, Number(raw.currentStep) || 1)),
-            applicant: normalizeDraftApplicant(
-              raw.applicant as Record<string, unknown> | undefined,
-              prefill
-            ),
-            idea: normalizeDraftIdea(raw.idea as Record<string, unknown> | undefined),
-            createdAt: normalizeTimestamp(raw.createdAt) || nowIso,
-            updatedAt: normalizeTimestamp(raw.updatedAt) || nowIso,
-            storageTarget: 'submissions',
-          });
-        }
-      });
-
-      if (subDrafts.length > 0) {
-        subDrafts.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-        const latest = subDrafts[0];
-        const allLocal = readLocalDrafts().filter((d) => d.id !== latest.id);
-        writeLocalDrafts([latest, ...allLocal]);
-        return latest;
-      }
-    } catch (subErr) {
-      if (!isPermissionDeniedError(subErr)) {
-        throw subErr instanceof Error ? subErr : new Error('Unable to load your draft.');
-      }
-      logFirestorePermissionWarning(subErr, 'list', 'submissions');
     }
   }
 
-  // 3. Local fallback drafts
-  const localDrafts = readLocalDrafts();
-  const existing = localDrafts
-    .filter((d) => d.submitterId === uid && d.status === 'draft')
-    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0];
-
-  if (!existing) return null;
-
-  return {
-    ...existing,
-    storageTarget: existing.storageTarget || 'local',
-    applicant: normalizeDraftApplicant(
-      existing.applicant as unknown as Record<string, unknown>,
-      prefill
-    ),
-    idea: normalizeDraftIdea(existing.idea as unknown as Record<string, unknown> | undefined),
-  };
+  return null;
 }
 
 export async function findOrCreateIdeaDraft(
@@ -1080,74 +1099,69 @@ export async function findOrCreateIdeaDraft(
   if (existing) return existing;
 
   const prefill = buildApplicantPrefillFromProfile(profile);
-  const emptyIdea = createEmptyIdeaDetails();
+  const legacyLocal = readLegacyLocalDraftForUser(uid);
+  const initialApplicant = legacyLocal
+    ? normalizeDraftApplicant(
+        legacyLocal.applicant as unknown as Record<string, unknown>,
+        prefill
+      )
+    : prefill;
+  const initialIdea = legacyLocal?.idea
+    ? normalizeDraftIdea(legacyLocal.idea as unknown as Record<string, unknown>)
+    : createEmptyIdeaDetails();
+  const initialStep = legacyLocal ? Math.max(1, Math.min(4, legacyLocal.currentStep || 1)) : 1;
   const nowIso = new Date().toISOString();
 
-  if (canQueryFirestoreForUser(uid)) {
-    try {
-      const newDocRef = doc(collection(db, 'ideas'));
-      const newDraft: IdeaDraft = {
-        id: newDocRef.id,
-        submitterId: uid,
-        status: 'draft',
-        currentStep: 1,
-        applicant: prefill,
-        idea: emptyIdea,
-        createdAt: nowIso,
-        updatedAt: nowIso,
-        storageTarget: 'ideas',
-      };
-      await setDoc(newDocRef, buildFirestoreIdeaPayload(newDraft, nowIso));
-      const allLocal = readLocalDrafts().filter((d) => d.id !== newDraft.id);
-      writeLocalDrafts([newDraft, ...allLocal]);
-      return newDraft;
-    } catch (err) {
-      if (!isPermissionDeniedError(err)) {
-        throw err instanceof Error ? err : new Error('Unable to load or create draft.');
-      }
-      logFirestorePermissionWarning(err, 'list', 'ideas');
+  // 1. Create in Firestore `ideas`
+  try {
+    const newDocRef = doc(collection(db, 'ideas'));
+    const newDraft: IdeaDraft = {
+      id: newDocRef.id,
+      submitterId: uid,
+      status: 'draft',
+      currentStep: initialStep,
+      applicant: initialApplicant,
+      idea: initialIdea,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      storageTarget: 'ideas',
+    };
+    await setDoc(newDocRef, buildFirestoreIdeaPayload(newDraft, nowIso));
+    clearLocalDraftsForUser(uid);
+    return newDraft;
+  } catch (err) {
+    if (!isPermissionDeniedError(err)) {
+      throw err instanceof Error ? err : new Error('Unable to create draft in Firestore.');
     }
-
-    try {
-      const newSubRef = doc(collection(db, 'submissions'));
-      const newSubDraft: IdeaDraft = {
-        id: newSubRef.id,
-        submitterId: uid,
-        status: 'draft',
-        currentStep: 1,
-        applicant: prefill,
-        idea: emptyIdea,
-        createdAt: nowIso,
-        updatedAt: nowIso,
-        storageTarget: 'submissions',
-      };
-      await setDoc(newSubRef, buildFirestoreSubmissionDraftPayload(newSubDraft, nowIso));
-      const allLocal = readLocalDrafts().filter((d) => d.id !== newSubDraft.id);
-      writeLocalDrafts([newSubDraft, ...allLocal]);
-      return newSubDraft;
-    } catch (subErr) {
-      if (!isPermissionDeniedError(subErr)) {
-        throw subErr instanceof Error ? subErr : new Error('Unable to load or create draft.');
-      }
-      logFirestorePermissionWarning(subErr, 'list', 'submissions');
-    }
+    logFirestorePermissionError(err, 'create', 'ideas');
   }
 
-  const localDrafts = readLocalDrafts();
-  const created: IdeaDraft = {
-    id: `draft-${uid.slice(-6)}-${Date.now()}`,
-    submitterId: uid,
-    status: 'draft',
-    currentStep: 1,
-    applicant: prefill,
-    idea: emptyIdea,
-    createdAt: nowIso,
-    updatedAt: nowIso,
-    storageTarget: 'local',
-  };
-  writeLocalDrafts([created, ...localDrafts]);
-  syncDraftIntoLocalIdeasSummary(created);
-  return created;
+  // 2. Fallback create in Firestore `submissions`
+  try {
+    const newSubRef = doc(collection(db, 'submissions'));
+    const newSubDraft: IdeaDraft = {
+      id: newSubRef.id,
+      submitterId: uid,
+      status: 'draft',
+      currentStep: initialStep,
+      applicant: initialApplicant,
+      idea: initialIdea,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      storageTarget: 'submissions',
+    };
+    await setDoc(newSubRef, buildFirestoreSubmissionDraftPayload(newSubDraft, nowIso));
+    clearLocalDraftsForUser(uid);
+    return newSubDraft;
+  } catch (subErr) {
+    if (!isPermissionDeniedError(subErr)) {
+      throw subErr instanceof Error ? subErr : new Error('Unable to create draft in Firestore.');
+    }
+    logFirestorePermissionError(subErr, 'create', 'submissions');
+    throw new Error(
+      `Unable to create your application draft in Firestore (Missing or insufficient permissions). Publish firestore.rules to your Firebase project (${firebaseConfig.projectId}) and retry.`
+    );
+  }
 }
 
 function updateLocalUserProfileIdentity(uid: string, patch: ProfileIdentityUpdate): void {
@@ -1201,89 +1215,87 @@ export async function saveIdeaDraft(
     updatedAt: nowIso,
   };
 
+  const firestoreReady = await ensureFirestoreReadyForUser(draft.submitterId);
+  if (!firestoreReady) {
+    throw new Error(getFirestoreAuthFailureReason(draft.submitterId));
+  }
+
   // Update user's profile with entered identity/location fields when provided
   if (profileIdentityUpdate && Object.keys(profileIdentityUpdate).length > 0) {
     updateLocalUserProfileIdentity(draft.submitterId, profileIdentityUpdate);
-    if (canQueryFirestoreForUser(draft.submitterId)) {
-      try {
-        const cleanProfilePatch: Record<string, unknown> = {
-          updatedAt: nowIso,
-        };
-        if (profileIdentityUpdate.firstName) cleanProfilePatch.firstName = profileIdentityUpdate.firstName;
-        if (profileIdentityUpdate.surname) cleanProfilePatch.surname = profileIdentityUpdate.surname;
-        if (profileIdentityUpdate.firstName || profileIdentityUpdate.surname) {
-          cleanProfilePatch.fullName = [
-            profileIdentityUpdate.firstName || sanitizedApplicant.firstName,
-            profileIdentityUpdate.surname || sanitizedApplicant.surname,
-          ]
-            .filter(Boolean)
-            .join(' ');
-        }
-        if (profileIdentityUpdate.omangOrPassport) {
-          cleanProfilePatch.omangOrPassport = profileIdentityUpdate.omangOrPassport;
-        }
-        if (profileIdentityUpdate.dob) cleanProfilePatch.dob = profileIdentityUpdate.dob;
-        if (profileIdentityUpdate.gender !== undefined) {
-          cleanProfilePatch.gender = profileIdentityUpdate.gender;
-        }
-        if (profileIdentityUpdate.district) cleanProfilePatch.district = profileIdentityUpdate.district;
-        if (profileIdentityUpdate.town) cleanProfilePatch.town = profileIdentityUpdate.town;
-        if (profileIdentityUpdate.address) cleanProfilePatch.address = profileIdentityUpdate.address;
+    try {
+      const cleanProfilePatch: Record<string, unknown> = {
+        updatedAt: nowIso,
+      };
+      if (profileIdentityUpdate.firstName) cleanProfilePatch.firstName = profileIdentityUpdate.firstName;
+      if (profileIdentityUpdate.surname) cleanProfilePatch.surname = profileIdentityUpdate.surname;
+      if (profileIdentityUpdate.firstName || profileIdentityUpdate.surname) {
+        cleanProfilePatch.fullName = [
+          profileIdentityUpdate.firstName || sanitizedApplicant.firstName,
+          profileIdentityUpdate.surname || sanitizedApplicant.surname,
+        ]
+          .filter(Boolean)
+          .join(' ');
+      }
+      if (profileIdentityUpdate.omangOrPassport) {
+        cleanProfilePatch.omangOrPassport = profileIdentityUpdate.omangOrPassport;
+      }
+      if (profileIdentityUpdate.dob) cleanProfilePatch.dob = profileIdentityUpdate.dob;
+      if (profileIdentityUpdate.gender !== undefined) {
+        cleanProfilePatch.gender = profileIdentityUpdate.gender;
+      }
+      if (profileIdentityUpdate.district) cleanProfilePatch.district = profileIdentityUpdate.district;
+      if (profileIdentityUpdate.town) cleanProfilePatch.town = profileIdentityUpdate.town;
+      if (profileIdentityUpdate.address) cleanProfilePatch.address = profileIdentityUpdate.address;
 
-        await setDoc(doc(db, 'users', draft.submitterId), cleanProfilePatch, { merge: true });
-      } catch (err) {
-        if (!isPermissionDeniedError(err)) {
-          console.warn('Could not sync profile identity fields to Firestore.');
-        }
+      await setDoc(doc(db, 'users', draft.submitterId), cleanProfilePatch, { merge: true });
+    } catch (err) {
+      if (!isPermissionDeniedError(err)) {
+        console.warn('Could not sync profile identity fields to Firestore.');
       }
     }
   }
 
-  if (canQueryFirestoreForUser(draft.submitterId)) {
-    let savedToCloud = false;
+  let savedToCloud = false;
 
-    if (updatedDraft.storageTarget !== 'submissions') {
-      try {
-        await setDoc(
-          doc(db, 'ideas', draft.id),
-          buildFirestoreIdeaPayload(updatedDraft, nowIso),
-          { merge: true }
-        );
-        updatedDraft.storageTarget = 'ideas';
-        savedToCloud = true;
-      } catch (err) {
-        if (!isPermissionDeniedError(err)) {
-          throw err instanceof Error ? err : new Error('Could not save draft.');
-        }
-        logFirestorePermissionWarning(err, 'list', 'ideas');
+  if (updatedDraft.storageTarget !== 'submissions') {
+    try {
+      await setDoc(
+        doc(db, 'ideas', draft.id),
+        buildFirestoreIdeaPayload(updatedDraft, nowIso),
+        { merge: true }
+      );
+      updatedDraft.storageTarget = 'ideas';
+      savedToCloud = true;
+    } catch (err) {
+      if (!isPermissionDeniedError(err)) {
+        throw err instanceof Error ? err : new Error('Could not save draft to Firestore.');
       }
+      logFirestorePermissionError(err, 'write', `ideas/${draft.id}`);
     }
-
-    if (!savedToCloud) {
-      try {
-        await setDoc(
-          doc(db, 'submissions', draft.id),
-          buildFirestoreSubmissionDraftPayload(updatedDraft, nowIso),
-          { merge: true }
-        );
-        updatedDraft.storageTarget = 'submissions';
-        savedToCloud = true;
-      } catch (subErr) {
-        if (!isPermissionDeniedError(subErr)) {
-          throw subErr instanceof Error ? subErr : new Error('Could not save draft.');
-        }
-        logFirestorePermissionWarning(subErr, 'list', 'submissions');
-        updatedDraft.storageTarget = 'local';
-      }
-    }
-  } else {
-    updatedDraft.storageTarget = 'local';
   }
 
-  const others = readLocalDrafts().filter((d) => d.id !== updatedDraft.id);
-  writeLocalDrafts([updatedDraft, ...others]);
-  syncDraftIntoLocalIdeasSummary(updatedDraft);
+  if (!savedToCloud) {
+    try {
+      await setDoc(
+        doc(db, 'submissions', draft.id),
+        buildFirestoreSubmissionDraftPayload(updatedDraft, nowIso),
+        { merge: true }
+      );
+      updatedDraft.storageTarget = 'submissions';
+      savedToCloud = true;
+    } catch (subErr) {
+      if (!isPermissionDeniedError(subErr)) {
+        throw subErr instanceof Error ? subErr : new Error('Could not save draft to Firestore.');
+      }
+      logFirestorePermissionError(subErr, 'write', `submissions/${draft.id}`);
+      throw new Error(
+        `Could not save draft to Firestore (Missing or insufficient permissions). Publish firestore.rules to your Firebase project (${firebaseConfig.projectId}) and retry.`
+      );
+    }
+  }
 
+  clearLocalDraftsForUser(draft.submitterId);
   return updatedDraft;
 }
 
@@ -1292,6 +1304,11 @@ export async function saveIdeaStep2(
   ideaInput: WizardIdeaDetails,
   nextStep: number
 ): Promise<IdeaDraft> {
+  const firestoreReady = await ensureFirestoreReadyForUser(draft.submitterId);
+  if (!firestoreReady) {
+    throw new Error(getFirestoreAuthFailureReason(draft.submitterId));
+  }
+
   const nowIso = new Date().toISOString();
   const cleanTrl =
     ideaInput.trl !== null &&
@@ -1339,43 +1356,40 @@ export async function saveIdeaStep2(
     updatedAt: nowIso,
   };
 
-  if (canQueryFirestoreForUser(draft.submitterId)) {
-    let savedToCloud = false;
+  let savedToCloud = false;
 
-    if (updatedDraft.storageTarget !== 'submissions') {
-      try {
-        await setDoc(doc(db, 'ideas', draft.id), step2Payload, { merge: true });
-        updatedDraft.storageTarget = 'ideas';
-        savedToCloud = true;
-      } catch (err) {
-        if (!isPermissionDeniedError(err)) {
-          throw err instanceof Error ? err : new Error('Could not save idea details.');
-        }
-        logFirestorePermissionWarning(err, 'list', 'ideas');
+  if (updatedDraft.storageTarget !== 'submissions') {
+    try {
+      await setDoc(doc(db, 'ideas', draft.id), step2Payload, { merge: true });
+      updatedDraft.storageTarget = 'ideas';
+      savedToCloud = true;
+    } catch (err) {
+      if (!isPermissionDeniedError(err)) {
+        throw err instanceof Error ? err : new Error('Could not save idea details to Firestore.');
       }
+      logFirestorePermissionError(err, 'update', `ideas/${draft.id}`);
     }
-
-    if (!savedToCloud) {
-      try {
-        await setDoc(doc(db, 'submissions', draft.id), step2Payload, { merge: true });
-        updatedDraft.storageTarget = 'submissions';
-        savedToCloud = true;
-      } catch (subErr) {
-        if (!isPermissionDeniedError(subErr)) {
-          throw subErr instanceof Error ? subErr : new Error('Could not save idea details.');
-        }
-        logFirestorePermissionWarning(subErr, 'list', 'submissions');
-        updatedDraft.storageTarget = 'local';
-      }
-    }
-  } else {
-    updatedDraft.storageTarget = 'local';
   }
 
-  const others = readLocalDrafts().filter((d) => d.id !== updatedDraft.id);
-  writeLocalDrafts([updatedDraft, ...others]);
-  syncDraftIntoLocalIdeasSummary(updatedDraft);
+  if (!savedToCloud) {
+    try {
+      await setDoc(doc(db, 'submissions', draft.id), step2Payload, { merge: true });
+      updatedDraft.storageTarget = 'submissions';
+      savedToCloud = true;
+    } catch (subErr) {
+      if (!isPermissionDeniedError(subErr)) {
+        throw subErr instanceof Error
+          ? subErr
+          : new Error('Could not save idea details to Firestore.');
+      }
+      logFirestorePermissionError(subErr, 'update', `submissions/${draft.id}`);
+      throw new Error(
+        `Could not save idea details to Firestore (Missing or insufficient permissions). Publish firestore.rules to your Firebase project (${firebaseConfig.projectId}) and retry.`
+      );
+    }
+  }
 
+  clearLocalDraftsForUser(draft.submitterId);
   return updatedDraft;
 }
 
