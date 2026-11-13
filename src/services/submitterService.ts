@@ -16,7 +16,15 @@ export type IdeaStatus =
   | 'feedback_requested'
   | 'approved'
   | 'awarded'
-  | 'declined';
+  | 'declined'
+  | (string & {});
+
+export interface IdeaFeedback {
+  title: string;
+  message: string;
+  dueDate: string | null;
+  fileUrl: string | null;
+}
 
 export interface SubmitterIdea {
   id: string;
@@ -25,11 +33,21 @@ export interface SubmitterIdea {
   reference: string;
   sector: string;
   location: string;
+  town?: string;
+  district?: string;
+  address?: string;
   status: IdeaStatus;
   stageStep: number; // 1..5
+  currentStep?: number; // 1..4 wizard progress for drafts
   requestedAmountBwp: number | null;
+  fundingPurpose?: string | null;
+  applicantType?: 'individual' | 'business';
+  companyName?: string | null;
+  cipaNumber?: string | null;
   dayInStage: number;
   feedbackDeadlineIso: string | null;
+  feedback?: IdeaFeedback | null;
+  submittedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -67,10 +85,9 @@ function normalizeTimestamp(val: unknown): string {
 }
 
 function normalizeIdeaStatus(rawStatus: unknown): IdeaStatus {
-  const s = String(rawStatus || 'submitted')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, '_');
+  const raw = String(rawStatus ?? '').trim();
+  if (!raw) return 'submitted';
+  const s = raw.toLowerCase().replace(/\s+/g, '_');
   if (s === 'feedback_requested' || s === 'feedback_ready' || s === 'needs_feedback') {
     return 'feedback_requested';
   }
@@ -81,7 +98,8 @@ function normalizeIdeaStatus(rawStatus: unknown): IdeaStatus {
   if (s === 'awarded') return 'awarded';
   if (s === 'declined' || s === 'rejected') return 'declined';
   if (s === 'draft') return 'draft';
-  return 'submitted';
+  if (s === 'submitted') return 'submitted';
+  return s;
 }
 
 function inferStageStep(rawStage: unknown, status: IdeaStatus): number {
@@ -332,14 +350,45 @@ function mapDocToSubmitterIdea(
   const status = normalizeIdeaStatus(raw.status);
   const createdAt = normalizeTimestamp(raw.createdAt);
   const updatedAt = normalizeTimestamp(raw.updatedAt) || createdAt;
-  const district = typeof raw.district === 'string' ? raw.district.trim() : '';
-  const town = typeof raw.town === 'string' ? raw.town.trim() : '';
-  const explicitLoc = typeof raw.location === 'string' ? raw.location.trim() : '';
-  const location = explicitLoc || [town, district].filter(Boolean).join(', ') || 'Botswana';
-  const rawAmount = Number(raw.requestedAmountBwp ?? raw.requestedCapital ?? raw.fundingRequested);
-
+  const rawApplicant =
+    raw.applicant && typeof raw.applicant === 'object'
+      ? (raw.applicant as Record<string, unknown>)
+      : undefined;
+  const rawBusiness =
+    rawApplicant?.business && typeof rawApplicant.business === 'object'
+      ? (rawApplicant.business as Record<string, unknown>)
+      : undefined;
   const rawIdea =
     raw.idea && typeof raw.idea === 'object' ? (raw.idea as Record<string, unknown>) : undefined;
+
+  const district =
+    (typeof rawApplicant?.district === 'string' && rawApplicant.district.trim()) ||
+    (typeof raw.district === 'string' && raw.district.trim()) ||
+    '';
+  const town =
+    (typeof rawApplicant?.town === 'string' && rawApplicant.town.trim()) ||
+    (typeof raw.town === 'string' && raw.town.trim()) ||
+    '';
+  const address =
+    (typeof rawApplicant?.address === 'string' && rawApplicant.address.trim()) ||
+    (typeof raw.address === 'string' && raw.address.trim()) ||
+    '';
+  const explicitLoc = typeof raw.location === 'string' ? raw.location.trim() : '';
+  const location = explicitLoc || [town, district].filter(Boolean).join(', ') || 'Botswana';
+
+  const rawAmount = Number(
+    raw.requestedAmountBwp ??
+      raw.requestedCapital ??
+      raw.fundingRequested ??
+      rawIdea?.requestedAmountBwp ??
+      rawIdea?.fundingRequested
+  );
+  const fundingPurpose =
+    (typeof rawIdea?.fundingPurpose === 'string' && rawIdea.fundingPurpose.trim()) ||
+    (typeof raw.fundingPurpose === 'string' && raw.fundingPurpose.trim()) ||
+    (typeof raw.purpose === 'string' && raw.purpose.trim()) ||
+    null;
+
   const resolvedTitle =
     (typeof rawIdea?.title === 'string' && rawIdea.title.trim()) ||
     (typeof raw.title === 'string' && raw.title.trim()) ||
@@ -350,21 +399,79 @@ function mapDocToSubmitterIdea(
     (typeof raw.sector === 'string' && raw.sector.trim()) ||
     'General Innovation';
 
+  const applicantType: 'individual' | 'business' =
+    rawApplicant?.type === 'business' || raw.accountType === 'business'
+      ? 'business'
+      : 'individual';
+  const companyName =
+    (typeof rawBusiness?.tradingName === 'string' && rawBusiness.tradingName.trim()) ||
+    (typeof raw.tradingName === 'string' && raw.tradingName.trim()) ||
+    (typeof raw.companyName === 'string' && raw.companyName.trim()) ||
+    null;
+  const cipaNumber =
+    (typeof rawBusiness?.cipaNumber === 'string' && rawBusiness.cipaNumber.trim()) ||
+    (typeof raw.cipaNumber === 'string' && raw.cipaNumber.trim()) ||
+    null;
+
+  const rawFeedbackObj =
+    rawIdea?.feedback && typeof rawIdea.feedback === 'object'
+      ? (rawIdea.feedback as Record<string, unknown>)
+      : raw.feedback && typeof raw.feedback === 'object'
+      ? (raw.feedback as Record<string, unknown>)
+      : null;
+  const feedbackDeadlineIso =
+    normalizeTimestamp(rawFeedbackObj?.dueDate || raw.feedbackDeadline || raw.slaDeadline) || null;
+  const feedback: IdeaFeedback | null = rawFeedbackObj
+    ? {
+        title:
+          (typeof rawFeedbackObj.title === 'string' && rawFeedbackObj.title.trim()) ||
+          'CEDA Officer Clarification',
+        message: typeof rawFeedbackObj.message === 'string' ? rawFeedbackObj.message.trim() : '',
+        dueDate: normalizeTimestamp(rawFeedbackObj.dueDate) || feedbackDeadlineIso,
+        fileUrl:
+          typeof rawFeedbackObj.fileUrl === 'string' && rawFeedbackObj.fileUrl.trim()
+            ? rawFeedbackObj.fileUrl.trim()
+            : null,
+      }
+    : null;
+
+  const parsedCurrentStep = Number(raw.currentStep);
+  const currentStep =
+    !Number.isNaN(parsedCurrentStep) && parsedCurrentStep >= 1 && parsedCurrentStep <= 4
+      ? Math.round(parsedCurrentStep)
+      : 1;
+
+  const explicitRef =
+    (typeof raw.reference === 'string' && raw.reference.trim()) ||
+    (typeof raw.trackingCode === 'string' && raw.trackingCode.trim()) ||
+    '';
+  const reference = explicitRef || (status === 'draft' ? 'Draft' : docId.slice(0, 12).toUpperCase());
+
+  const submittedAt =
+    normalizeTimestamp(raw.submittedAt) || (status !== 'draft' ? createdAt || null : null);
+
   return {
     id: docId,
     submitterId: String(raw.submitterId || uid),
     title: resolvedTitle,
-    reference:
-      (typeof raw.reference === 'string' && raw.reference.trim()) ||
-      (typeof raw.trackingCode === 'string' && raw.trackingCode.trim()) ||
-      docId.slice(0, 12).toUpperCase(),
+    reference,
     sector: resolvedSector,
     location,
+    town,
+    district,
+    address,
     status,
     stageStep: inferStageStep(raw.currentStage ?? raw.stage, status),
+    currentStep,
     requestedAmountBwp: !Number.isNaN(rawAmount) && rawAmount > 0 ? rawAmount : null,
+    fundingPurpose,
+    applicantType,
+    companyName,
+    cipaNumber,
     dayInStage: computeDayInStage(updatedAt, createdAt, raw.dayInStage),
-    feedbackDeadlineIso: normalizeTimestamp(raw.feedbackDeadline || raw.slaDeadline) || null,
+    feedbackDeadlineIso,
+    feedback,
+    submittedAt,
     createdAt,
     updatedAt,
   };

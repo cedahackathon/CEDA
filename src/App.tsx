@@ -25,6 +25,7 @@ import { GuidelinesPage, FaqsPage, HelpCenterPage } from './components/pages/Inf
 
 // Role Dashboards
 import { SubmitterDashboard } from './components/pages/dashboards/SubmitterDashboard';
+import { MySubmissionsPage } from './components/pages/dashboards/MySubmissionsPage';
 import { SubmitterComingSoonPage } from './components/pages/dashboards/SubmitterComingSoonPage';
 import { SubmitIdeaWizard } from './components/pages/submit/SubmitIdeaWizard';
 import { SubmitterLayout } from './components/submitter/SubmitterLayout';
@@ -51,7 +52,6 @@ const WIZARD_PATHS = new Set<string>([
 ]);
 
 const SUBMITTER_COMING_SOON_PATHS = new Set<string>([
-  '/submissions',
   '/notifications',
   '/profile',
 ]);
@@ -93,6 +93,7 @@ const AppContent: React.FC = () => {
   const isSubmitterRoute =
     cleanPath === '/dashboard' ||
     cleanPath === '/dashboard/submitter' ||
+    cleanPath === '/submissions' ||
     SUBMITTER_COMING_SOON_PATHS.has(cleanPath) ||
     cleanPath.startsWith('/submissions/') ||
     (cleanPath === '/help-center' && currentUser?.role === 'SUBMITTER');
@@ -175,6 +176,13 @@ const AppContent: React.FC = () => {
           );
         }
         return <HelpCenterPage />;
+
+      case '/submissions':
+        return (
+          <RouteGuard allowedRoles={['SUBMITTER', 'ADMIN']}>
+            <MySubmissionsPage />
+          </RouteGuard>
+        );
 
       case '/dashboard':
       case '/dashboard/submitter':
