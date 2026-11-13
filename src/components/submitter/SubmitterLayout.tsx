@@ -59,7 +59,7 @@ export const SubmitterLayout: React.FC<SubmitterLayoutProps> = ({
   const userMenuRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLDivElement>(null);
 
-  const activeUid = auth?.currentUser?.uid || currentUser?.id || '';
+  const activeUid = currentUser?.id || auth?.currentUser?.uid || '';
 
   useEffect(() => {
     const shouldFetchIdeas = propIdeasCount === undefined;

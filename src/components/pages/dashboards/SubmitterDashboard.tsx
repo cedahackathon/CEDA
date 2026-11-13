@@ -107,7 +107,7 @@ export const SubmitterDashboard: React.FC = () => {
     isLiveChatAvailableNow()
   );
 
-  const activeUid = auth?.currentUser?.uid || currentUser?.id || '';
+  const activeUid = currentUser?.id || auth?.currentUser?.uid || '';
 
   const loadDashboard = useCallback(async () => {
     setIsLoading(true);
@@ -122,11 +122,22 @@ export const SubmitterDashboard: React.FC = () => {
     if (ideasResult.status === 'fulfilled') {
       setIdeas(ideasResult.value);
     } else {
-      const reason =
+      const rawReason =
         ideasResult.reason instanceof Error
           ? ideasResult.reason.message
           : 'Unable to load your submissions from Firestore.';
-      setIdeasError(reason);
+      let friendlyReason = rawReason;
+      try {
+        const parsed = JSON.parse(rawReason) as { error?: string; path?: string };
+        if (parsed && parsed.error) {
+          friendlyReason = parsed.path
+            ? `Firestore permissions prevented loading "${parsed.path}" (${parsed.error}).`
+            : parsed.error;
+        }
+      } catch {
+        // plain string message
+      }
+      setIdeasError(friendlyReason);
     }
 
     if (notificationsResult.status === 'fulfilled') {
@@ -266,34 +277,34 @@ export const SubmitterDashboard: React.FC = () => {
               </div>
             </div>
           </div>
-        ) : ideasError ? (
-          /* Error State for failed ideas query with Retry */
-          <section
-            role="alert"
-            className="bg-white rounded-xl border border-[#ba1a1a]/30 p-6 sm:p-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs"
-          >
-            <div className="flex items-start gap-3.5">
-              <div className="w-11 h-11 rounded-xl bg-red-50 text-[#ba1a1a] flex items-center justify-center shrink-0">
-                <span className="material-symbols-outlined text-[24px]">error_outline</span>
-              </div>
-              <div>
-                <h2 className="font-headline text-base font-bold text-[#1c1c19]">
-                  Unable to load your submissions
-                </h2>
-                <p className="text-xs sm:text-sm text-[#5a413c] mt-1">{ideasError}</p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={loadDashboard}
-              className="inline-flex items-center justify-center gap-2 h-10 px-5 rounded-xl bg-[#a02010] hover:bg-[#7c0700] text-white text-xs font-semibold transition-colors shrink-0 self-start sm:self-auto"
-            >
-              <span className="material-symbols-outlined text-[16px]">refresh</span>
-              <span>Retry</span>
-            </button>
-          </section>
         ) : (
           <>
+            {ideasError && (
+              <section
+                role="alert"
+                className="bg-white rounded-xl border border-[#ba1a1a]/30 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-red-50 text-[#ba1a1a] flex items-center justify-center shrink-0">
+                    <span className="material-symbols-outlined text-[22px]">error_outline</span>
+                  </div>
+                  <div>
+                    <h2 className="font-headline text-sm sm:text-base font-bold text-[#1c1c19]">
+                      Unable to load live submissions
+                    </h2>
+                    <p className="text-xs text-[#5a413c] mt-0.5">{ideasError}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={loadDashboard}
+                  className="inline-flex items-center justify-center gap-2 h-9 px-4 rounded-xl bg-[#a02010] hover:bg-[#7c0700] text-white text-xs font-semibold transition-colors shrink-0 self-start sm:self-auto"
+                >
+                  <span className="material-symbols-outlined text-[16px]">refresh</span>
+                  <span>Retry</span>
+                </button>
+              </section>
+            )}
             {/* 4 Stat Cards */}
             <section
               aria-label="Submission statistics"

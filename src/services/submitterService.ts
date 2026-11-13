@@ -4,7 +4,7 @@
  */
 
 import { collection, getDocs, query, where } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { auth, db, firebaseConfig } from '../config/firebase';
 import { DEFAULT_OPEN_CALL, OpenCallData } from '../data/submitterMock';
 
 export type IdeaStatus =
@@ -174,61 +174,203 @@ export function computeSubmitterStats(ideas: SubmitterIdea[]): SubmitterStats {
   };
 }
 
-export async function fetchSubmitterIdeas(uid: string): Promise<SubmitterIdea[]> {
-  if (!db) {
-    throw new Error('Firestore is not initialized.');
+const LOCAL_IDEAS_KEY = 'ceda_portal_submitter_ideas_v1';
+const LOCAL_NOTIFICATIONS_KEY = 'ceda_portal_submitter_notifications_v1';
+
+const DEFAULT_DEMO_IDEAS: SubmitterIdea[] = [
+  {
+    id: 'idea-sub-001',
+    submitterId: 'user-sub-001',
+    title: 'Solar-Powered Smart Grain Silos for Chobe Farmers',
+    reference: 'CEDA-INN-2026-0842',
+    sector: 'Agri-Tech & Food Security',
+    location: 'Maun, North-West',
+    status: 'under_review',
+    stageStep: 2,
+    requestedAmountBwp: 450000,
+    dayInStage: 6,
+    feedbackDeadlineIso: null,
+    createdAt: '2026-02-18T09:15:00Z',
+    updatedAt: '2026-03-01T14:30:00Z',
+  },
+];
+
+const DEFAULT_DEMO_NOTIFICATIONS: SubmitterNotification[] = [
+  {
+    id: 'notif-sub-001',
+    userId: 'user-sub-001',
+    title: 'Stage 2 technical evaluation underway',
+    message:
+      'Dual-blind technical evaluators have been assigned to Solar-Powered Smart Grain Silos (CEDA-INN-2026-0842).',
+    read: false,
+    ideaId: 'idea-sub-001',
+    route: '/submissions/idea-sub-001',
+    createdAt: '2026-03-01T14:30:00Z',
+  },
+  {
+    id: 'notif-sub-002',
+    userId: 'user-sub-001',
+    title: 'Proposal receipt confirmed',
+    message:
+      'Your proposal CEDA-INN-2026-0842 passed initial compliance screening and entered the 14-day review SLA.',
+    read: true,
+    ideaId: 'idea-sub-001',
+    route: '/submissions/idea-sub-001',
+    createdAt: '2026-02-19T10:05:00Z',
+  },
+  {
+    id: 'notif-sub-003',
+    userId: 'user-sub-001',
+    title: 'National Agro-Tech Cohort open',
+    message:
+      'Additional matching advisory support is open for citizen-owned Agri-Tech proposals in North-West and Chobe.',
+    read: true,
+    route: '/guidelines',
+    createdAt: '2026-02-15T08:00:00Z',
+  },
+];
+
+function getLocalIdeasForUser(uid: string): SubmitterIdea[] {
+  if (!uid) return [];
+  try {
+    const raw = localStorage.getItem(LOCAL_IDEAS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as SubmitterIdea[];
+      if (Array.isArray(parsed)) {
+        return parsed.filter((item) => item.submitterId === uid);
+      }
+    } else {
+      localStorage.setItem(LOCAL_IDEAS_KEY, JSON.stringify(DEFAULT_DEMO_IDEAS));
+    }
+  } catch {
+    // ignore storage errors
   }
+  return DEFAULT_DEMO_IDEAS.filter((item) => item.submitterId === uid);
+}
+
+function getLocalNotificationsForUser(uid: string): SubmitterNotification[] {
+  if (!uid) return [];
+  try {
+    const raw = localStorage.getItem(LOCAL_NOTIFICATIONS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as SubmitterNotification[];
+      if (Array.isArray(parsed)) {
+        return parsed.filter((item) => item.userId === uid);
+      }
+    } else {
+      localStorage.setItem(LOCAL_NOTIFICATIONS_KEY, JSON.stringify(DEFAULT_DEMO_NOTIFICATIONS));
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return DEFAULT_DEMO_NOTIFICATIONS.filter((item) => item.userId === uid);
+}
+
+function canQueryFirestoreForUser(uid?: string): boolean {
+  if (!db || firebaseConfig.apiKey.includes('MockKey')) return false;
+  if (!auth?.currentUser) return false;
+  if (uid && auth.currentUser.uid !== uid) return false;
+  return true;
+}
+
+function logAndThrowFirestorePermissionError(
+  error: unknown,
+  operationType: 'get' | 'list',
+  path: string
+): never {
+  const currentAuthUser = auth?.currentUser;
+  const rawMessage = error instanceof Error ? error.message : String(error);
+  const errInfo = {
+    error: rawMessage,
+    operationType,
+    path,
+    authInfo: {
+      userId: currentAuthUser?.uid ?? null,
+      email: currentAuthUser?.email ?? null,
+      emailVerified: currentAuthUser?.emailVerified ?? null,
+      isAnonymous: currentAuthUser?.isAnonymous ?? null,
+      tenantId: currentAuthUser?.tenantId ?? null,
+      providerInfo:
+        currentAuthUser?.providerData?.map(
+          (provider: { providerId?: string | null; email?: string | null }) => ({
+            providerId: provider.providerId,
+            email: provider.email,
+          })
+        ) || [],
+    },
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
+export async function fetchSubmitterIdeas(uid: string): Promise<SubmitterIdea[]> {
   if (!uid) return [];
 
-  const q = query(collection(db, 'ideas'), where('submitterId', '==', uid));
-  const snap = await getDocs(q);
-  const list: SubmitterIdea[] = [];
+  if (!canQueryFirestoreForUser(uid)) {
+    return getLocalIdeasForUser(uid);
+  }
 
-  snap.forEach((docSnap) => {
-    const raw = docSnap.data() as Record<string, unknown>;
-    const status = normalizeIdeaStatus(raw.status);
-    const createdAt = normalizeTimestamp(raw.createdAt);
-    const updatedAt = normalizeTimestamp(raw.updatedAt) || createdAt;
-    const district = typeof raw.district === 'string' ? raw.district.trim() : '';
-    const town = typeof raw.town === 'string' ? raw.town.trim() : '';
-    const explicitLoc = typeof raw.location === 'string' ? raw.location.trim() : '';
-    const location = explicitLoc || [town, district].filter(Boolean).join(', ') || 'Botswana';
-    const rawAmount = Number(raw.requestedAmountBwp ?? raw.requestedCapital ?? raw.fundingRequested);
+  try {
+    const q = query(collection(db, 'ideas'), where('submitterId', '==', uid));
+    const snap = await getDocs(q);
+    const list: SubmitterIdea[] = [];
 
-    list.push({
-      id: docSnap.id,
-      submitterId: String(raw.submitterId || uid),
-      title:
-        (typeof raw.title === 'string' && raw.title.trim()) ||
-        (typeof raw.ideaTitle === 'string' && raw.ideaTitle.trim()) ||
-        'Untitled innovation proposal',
-      reference:
-        (typeof raw.reference === 'string' && raw.reference.trim()) ||
-        (typeof raw.trackingCode === 'string' && raw.trackingCode.trim()) ||
-        docSnap.id.slice(0, 12).toUpperCase(),
-      sector: (typeof raw.sector === 'string' && raw.sector.trim()) || 'General Innovation',
-      location,
-      status,
-      stageStep: inferStageStep(raw.currentStage ?? raw.stage, status),
-      requestedAmountBwp: !Number.isNaN(rawAmount) && rawAmount > 0 ? rawAmount : null,
-      dayInStage: computeDayInStage(updatedAt, createdAt, raw.dayInStage),
-      feedbackDeadlineIso: normalizeTimestamp(raw.feedbackDeadline || raw.slaDeadline) || null,
-      createdAt,
-      updatedAt,
+    snap.forEach((docSnap) => {
+      const raw = docSnap.data() as Record<string, unknown>;
+      const status = normalizeIdeaStatus(raw.status);
+      const createdAt = normalizeTimestamp(raw.createdAt);
+      const updatedAt = normalizeTimestamp(raw.updatedAt) || createdAt;
+      const district = typeof raw.district === 'string' ? raw.district.trim() : '';
+      const town = typeof raw.town === 'string' ? raw.town.trim() : '';
+      const explicitLoc = typeof raw.location === 'string' ? raw.location.trim() : '';
+      const location = explicitLoc || [town, district].filter(Boolean).join(', ') || 'Botswana';
+      const rawAmount = Number(raw.requestedAmountBwp ?? raw.requestedCapital ?? raw.fundingRequested);
+
+      list.push({
+        id: docSnap.id,
+        submitterId: String(raw.submitterId || uid),
+        title:
+          (typeof raw.title === 'string' && raw.title.trim()) ||
+          (typeof raw.ideaTitle === 'string' && raw.ideaTitle.trim()) ||
+          'Untitled innovation proposal',
+        reference:
+          (typeof raw.reference === 'string' && raw.reference.trim()) ||
+          (typeof raw.trackingCode === 'string' && raw.trackingCode.trim()) ||
+          docSnap.id.slice(0, 12).toUpperCase(),
+        sector: (typeof raw.sector === 'string' && raw.sector.trim()) || 'General Innovation',
+        location,
+        status,
+        stageStep: inferStageStep(raw.currentStage ?? raw.stage, status),
+        requestedAmountBwp: !Number.isNaN(rawAmount) && rawAmount > 0 ? rawAmount : null,
+        dayInStage: computeDayInStage(updatedAt, createdAt, raw.dayInStage),
+        feedbackDeadlineIso: normalizeTimestamp(raw.feedbackDeadline || raw.slaDeadline) || null,
+        createdAt,
+        updatedAt,
+      });
     });
-  });
 
-  list.sort((a, b) => {
-    const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
-    const timeB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
-    return (Number.isNaN(timeB) ? 0 : timeB) - (Number.isNaN(timeA) ? 0 : timeA);
-  });
+    list.sort((a, b) => {
+      const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+      const timeB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+      return (Number.isNaN(timeB) ? 0 : timeB) - (Number.isNaN(timeA) ? 0 : timeA);
+    });
 
-  return list;
+    return list;
+  } catch (err) {
+    const code = (err as { code?: string })?.code || '';
+    const msg = err instanceof Error ? err.message : String(err);
+    if (code === 'permission-denied' || msg.toLowerCase().includes('missing or insufficient permissions')) {
+      logAndThrowFirestorePermissionError(err, 'list', 'ideas');
+    }
+    throw err instanceof Error ? err : new Error(msg);
+  }
 }
 
 export async function fetchSubmitterNotifications(uid: string): Promise<SubmitterNotification[]> {
-  if (!db || !uid) return [];
+  if (!uid) return [];
+  if (!canQueryFirestoreForUser(uid)) {
+    return getLocalNotificationsForUser(uid);
+  }
   try {
     const q = query(collection(db, 'notifications'), where('userId', '==', uid));
     const snap = await getDocs(q);
@@ -263,12 +405,12 @@ export async function fetchSubmitterNotifications(uid: string): Promise<Submitte
     return items;
   } catch (err) {
     console.warn('Submitter notifications query note:', err);
-    return [];
+    return getLocalNotificationsForUser(uid);
   }
 }
 
 export async function fetchOpenCall(): Promise<OpenCallData> {
-  if (!db) return DEFAULT_OPEN_CALL;
+  if (!canQueryFirestoreForUser()) return DEFAULT_OPEN_CALL;
   try {
     const snap = await getDocs(collection(db, 'calls'));
     if (snap.empty) return DEFAULT_OPEN_CALL;

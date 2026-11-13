@@ -4,13 +4,19 @@
  */
 
 import { doc, setDoc } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { auth, db, firebaseConfig } from '../config/firebase';
 import { UserProfile } from '../types/auth';
 
 /**
  * Seeds initial collections and test user records into Firestore so they appear in the Firebase Console.
  */
 export async function seedFirestoreCollections(): Promise<{ success: boolean; message: string }> {
+  if (!db || firebaseConfig.apiKey.includes('MockKey') || !auth?.currentUser) {
+    return {
+      success: true,
+      message: 'Skipped remote Firestore seeding in local prototype mode.',
+    };
+  }
   try {
     const testUserId = 'test-user-botswana-001';
     const testUser: UserProfile = {
