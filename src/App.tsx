@@ -7,7 +7,6 @@ import React, { useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Header } from './components/common/Header';
 import { Footer } from './components/common/Footer';
-import { DemoRoleSwitcher } from './components/common/DemoRoleSwitcher';
 import { IdleTimeoutModal } from './components/common/IdleTimeoutModal';
 import { RouteGuard } from './components/common/RouteGuard';
 import { seedFirestoreCollections } from './services/seedFirestore';
@@ -27,6 +26,7 @@ import { GuidelinesPage, FaqsPage, HelpCenterPage } from './components/pages/Inf
 // Role Dashboards
 import { SubmitterDashboard } from './components/pages/dashboards/SubmitterDashboard';
 import { SubmitterComingSoonPage } from './components/pages/dashboards/SubmitterComingSoonPage';
+import { SubmitIdeaWizard } from './components/pages/submit/SubmitIdeaWizard';
 import { SubmitterLayout } from './components/submitter/SubmitterLayout';
 import { EvaluatorDashboard } from './components/pages/dashboards/EvaluatorDashboard';
 import { AdjudicatorDashboard } from './components/pages/dashboards/AdjudicatorDashboard';
@@ -42,8 +42,15 @@ const ADMIN_COMING_SOON_PATHS = new Set<string>(
   )
 );
 
-const SUBMITTER_COMING_SOON_PATHS = new Set<string>([
+const WIZARD_PATHS = new Set<string>([
   '/submit',
+  '/submit/applicant',
+  '/submit/idea',
+  '/submit/documents',
+  '/submit/review',
+]);
+
+const SUBMITTER_COMING_SOON_PATHS = new Set<string>([
   '/submissions',
   '/notifications',
   '/profile',
@@ -82,6 +89,7 @@ const AppContent: React.FC = () => {
     cleanPath === '/dashboard/admin';
   const showAdminShell = Boolean(isAdminRoute && isAuthenticated && currentUser?.role === 'ADMIN');
 
+  const isWizardRoute = WIZARD_PATHS.has(cleanPath);
   const isSubmitterRoute =
     cleanPath === '/dashboard' ||
     cleanPath === '/dashboard/submitter' ||
@@ -89,9 +97,10 @@ const AppContent: React.FC = () => {
     cleanPath.startsWith('/submissions/') ||
     (cleanPath === '/help-center' && currentUser?.role === 'SUBMITTER');
   const showSubmitterShell = Boolean(
-    isSubmitterRoute &&
-      isAuthenticated &&
-      (currentUser?.role === 'SUBMITTER' || currentUser?.role === 'ADMIN')
+    isAuthenticated &&
+      ((isWizardRoute && currentUser?.role === 'SUBMITTER') ||
+        (isSubmitterRoute &&
+          (currentUser?.role === 'SUBMITTER' || currentUser?.role === 'ADMIN')))
   );
   const hidePublicChrome = showAdminShell || showSubmitterShell;
 
@@ -100,6 +109,14 @@ const AppContent: React.FC = () => {
       return (
         <RouteGuard allowedRoles={['ADMIN']}>
           <AdminComingSoonPage routePath={cleanPath as AdminRoutePath} />
+        </RouteGuard>
+      );
+    }
+
+    if (WIZARD_PATHS.has(cleanPath)) {
+      return (
+        <RouteGuard allowedRoles={['SUBMITTER']}>
+          <SubmitIdeaWizard routePath={cleanPath} />
         </RouteGuard>
       );
     }
@@ -224,12 +241,13 @@ const AppContent: React.FC = () => {
   return (
     <div className="min-h-screen flex flex-col font-sans bg-[#fdf9f4] text-[#31302d]">
       {!hidePublicChrome && <Header />}
-      <main className={hidePublicChrome ? 'flex-1' : 'flex-1 pt-20'}>
-        {renderCurrentPage()}
-      </main>
+      {hidePublicChrome ? (
+        <div className="flex-1">{renderCurrentPage()}</div>
+      ) : (
+        <main className="flex-1 pt-20">{renderCurrentPage()}</main>
+      )}
       {!hidePublicChrome && <Footer />}
       <IdleTimeoutModal />
-      <DemoRoleSwitcher />
     </div>
   );
 };

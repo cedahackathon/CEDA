@@ -176,6 +176,23 @@ export const SUBMITTER_STAGES = [
   { step: 5, key: 'award', label: 'Award' },
 ] as const;
 
+export const SUBMITTER_WIZARD_STEPS = [
+  { step: 1, key: 'applicant', label: 'Applicant details', path: '/submit/applicant' },
+  { step: 2, key: 'idea', label: 'Idea details', path: '/submit/idea' },
+  { step: 3, key: 'documents', label: 'Documents', path: '/submit/documents' },
+  { step: 4, key: 'review', label: 'Review and submit', path: '/submit/review' },
+] as const;
+
+export const STATUTORY_DECLARATION_TEXT =
+  'I declare that I am a citizen of the Republic of Botswana, or an authorised representative of a 100% citizen-owned entity registered in Botswana, and that all identity, contact, location, and enterprise details supplied in this submission are true, accurate, and complete. I acknowledge that my personal data is processed strictly for CEDA innovation evaluation under the Botswana Data Protection Act (BDPA) and that misrepresentation may disqualify the application.';
+
+export const GENDER_OPTIONS = [
+  'Male',
+  'Female',
+  'Non-binary',
+  'Prefer not to say',
+] as const;
+
 /**
  * Live chat is available strictly 09:00 to 16:00 Monday to Friday (Africa/Gaborone, CAT).
  */

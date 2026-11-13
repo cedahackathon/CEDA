@@ -24,6 +24,7 @@ interface SubmitterLayoutProps {
   notifications?: SubmitterNotification[];
   searchQuery?: string;
   onSearchChange?: (query: string) => void;
+  onBeforeNavigate?: (targetPath: string) => boolean;
 }
 
 function getInitials(name?: string): string {
@@ -42,6 +43,7 @@ export const SubmitterLayout: React.FC<SubmitterLayoutProps> = ({
   notifications: propNotifications,
   searchQuery: externalSearchQuery,
   onSearchChange,
+  onBeforeNavigate,
 }) => {
   const { currentUser, currentRoute, setCurrentRoute, language, setLanguage, logout } = useAuth();
 
@@ -152,6 +154,9 @@ export const SubmitterLayout: React.FC<SubmitterLayoutProps> = ({
   }, []);
 
   const navigateTo = (path: string) => {
+    if (onBeforeNavigate && !onBeforeNavigate(path)) {
+      return;
+    }
     setCurrentRoute(path);
     setIsMobileDrawerOpen(false);
     setIsNotificationsOpen(false);
@@ -162,6 +167,9 @@ export const SubmitterLayout: React.FC<SubmitterLayoutProps> = ({
   const isNavItemActive = (item: SubmitterNavItem) => {
     if (item.path === '/dashboard') {
       return cleanPath === '/dashboard' || cleanPath === '/dashboard/submitter';
+    }
+    if (item.path === '/submit') {
+      return cleanPath === '/submit' || cleanPath.startsWith('/submit/');
     }
     if (item.path === '/submissions') {
       return cleanPath === '/submissions' || cleanPath.startsWith('/submissions/');
@@ -815,10 +823,12 @@ export const SubmitterLayout: React.FC<SubmitterLayoutProps> = ({
 
         <button
           type="button"
-          onClick={() => navigateTo('/submit')}
-          aria-current={cleanPath === '/submit' ? 'page' : undefined}
+          onClick={() => navigateTo('/submit/applicant')}
+          aria-current={cleanPath === '/submit' || cleanPath.startsWith('/submit/') ? 'page' : undefined}
           className={`flex flex-col items-center justify-center py-1 rounded-lg text-[10px] font-semibold transition-colors ${
-            cleanPath === '/submit' ? 'text-[#a02010]' : 'text-[#5a413c] hover:text-[#1c1c19]'
+            cleanPath === '/submit' || cleanPath.startsWith('/submit/')
+              ? 'text-[#a02010]'
+              : 'text-[#5a413c] hover:text-[#1c1c19]'
           }`}
         >
           <span className="material-symbols-outlined text-[20px]">lightbulb</span>

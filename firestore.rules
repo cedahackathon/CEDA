@@ -161,10 +161,16 @@ service cloud.firestore {
       );
 
       allow create: if isSignedIn()
-        && request.resource.data.submitterId == request.auth.uid;
+        && request.resource.data.submitterId == request.auth.uid
+        && request.resource.data.status in ['draft', 'submitted'];
 
       allow update: if isSignedIn() && (
-        resource.data.submitterId == request.auth.uid
+        (
+          resource.data.submitterId == request.auth.uid
+          && resource.data.status == 'draft'
+          && request.resource.data.submitterId == resource.data.submitterId
+          && request.resource.data.status in ['draft', 'submitted']
+        )
         || isAdmin()
         || hasRole('EVALUATOR')
         || hasRole('ADJUDICATOR')

@@ -24,7 +24,7 @@ import { RoleConfigItem, UserRole } from '../types/auth';
 export const ROLE_CONFIGS: Record<UserRole, RoleConfigItem> = {
   SUBMITTER: {
     role: 'SUBMITTER',
-    label: 'Citizen Innovator',
+    label: 'Submitter',
     labelSetswana: 'Moitseanape wa Botswana',
     description: 'Botswana citizen entrepreneurs, youth inventors, startups and enterprises submitting novel commercial ventures.',
     landingRoute: '/dashboard',
