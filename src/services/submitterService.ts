@@ -5,6 +5,7 @@
 
 import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
 import { auth, db, firebaseConfig } from '../config/firebase';
+import { normalizeDistrictCouncilName } from '../config/districts';
 import { DEFAULT_OPEN_CALL, OpenCallData } from '../data/submitterMock';
 import { UserProfile } from '../types/auth';
 
@@ -15,7 +16,15 @@ export type IdeaStatus =
   | 'feedback_requested'
   | 'approved'
   | 'awarded'
-  | 'declined';
+  | 'declined'
+  | (string & {});
+
+export interface IdeaFeedback {
+  title: string;
+  message: string;
+  dueDate: string | null;
+  fileUrl: string | null;
+}
 
 export interface SubmitterIdea {
   id: string;
@@ -24,11 +33,21 @@ export interface SubmitterIdea {
   reference: string;
   sector: string;
   location: string;
+  town?: string;
+  district?: string;
+  address?: string;
   status: IdeaStatus;
   stageStep: number; // 1..5
+  currentStep?: number; // 1..4 wizard progress for drafts
   requestedAmountBwp: number | null;
+  fundingPurpose?: string | null;
+  applicantType?: 'individual' | 'business';
+  companyName?: string | null;
+  cipaNumber?: string | null;
   dayInStage: number;
   feedbackDeadlineIso: string | null;
+  feedback?: IdeaFeedback | null;
+  submittedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -66,10 +85,9 @@ function normalizeTimestamp(val: unknown): string {
 }
 
 function normalizeIdeaStatus(rawStatus: unknown): IdeaStatus {
-  const s = String(rawStatus || 'submitted')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, '_');
+  const raw = String(rawStatus ?? '').trim();
+  if (!raw) return 'submitted';
+  const s = raw.toLowerCase().replace(/\s+/g, '_');
   if (s === 'feedback_requested' || s === 'feedback_ready' || s === 'needs_feedback') {
     return 'feedback_requested';
   }
@@ -80,7 +98,8 @@ function normalizeIdeaStatus(rawStatus: unknown): IdeaStatus {
   if (s === 'awarded') return 'awarded';
   if (s === 'declined' || s === 'rejected') return 'declined';
   if (s === 'draft') return 'draft';
-  return 'submitted';
+  if (s === 'submitted') return 'submitted';
+  return s;
 }
 
 function inferStageStep(rawStage: unknown, status: IdeaStatus): number {
@@ -267,16 +286,36 @@ function getLocalNotificationsForUser(uid: string): SubmitterNotification[] {
   return DEFAULT_DEMO_NOTIFICATIONS.filter((item) => item.userId === uid);
 }
 
-function canQueryFirestoreForUser(uid?: string): boolean {
-  if (!db || firebaseConfig.apiKey.includes('MockKey')) return false;
-  if (!auth?.currentUser) return false;
+async function ensureFirestoreReadyForUser(uid?: string): Promise<boolean> {
+  if (!db || !auth || firebaseConfig.apiKey.includes('MockKey')) return false;
+  try {
+    if (typeof auth.authStateReady === 'function') {
+      await auth.authStateReady();
+    }
+  } catch {
+    // ignore authStateReady errors
+  }
+  if (!auth.currentUser) return false;
   if (uid && auth.currentUser.uid !== uid) return false;
   return true;
 }
 
-function logFirestorePermissionWarning(
+function getFirestoreAuthFailureReason(uid?: string): string {
+  if (!db || !auth || firebaseConfig.apiKey.includes('MockKey')) {
+    return 'Firebase is not configured. Check your VITE_FIREBASE_* environment variables.';
+  }
+  if (!auth.currentUser) {
+    return 'Your Firebase sign-in session is not active. Please sign out and sign back in with your email and password so drafts save to Firestore.';
+  }
+  if (uid && auth.currentUser.uid !== uid) {
+    return 'Your active Firebase account does not match the current portal profile. Please sign out and sign back in.';
+  }
+  return 'Unable to connect to Firestore.';
+}
+
+function logFirestorePermissionError(
   error: unknown,
-  operationType: 'get' | 'list',
+  operationType: 'get' | 'list' | 'create' | 'update' | 'delete' | 'write',
   path: string
 ): void {
   const currentAuthUser = auth?.currentUser;
@@ -294,13 +333,13 @@ function logFirestorePermissionWarning(
       providerInfo:
         currentAuthUser?.providerData?.map(
           (provider: { providerId?: string | null; email?: string | null }) => ({
-            providerId: provider.providerId,
-            email: provider.email,
+            providerId: provider.providerId ?? null,
+            email: provider.email ?? null,
           })
         ) || [],
     },
   };
-  console.warn('Firestore permission fallback active:', JSON.stringify(errInfo));
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
 }
 
 function mapDocToSubmitterIdea(
@@ -311,30 +350,128 @@ function mapDocToSubmitterIdea(
   const status = normalizeIdeaStatus(raw.status);
   const createdAt = normalizeTimestamp(raw.createdAt);
   const updatedAt = normalizeTimestamp(raw.updatedAt) || createdAt;
-  const district = typeof raw.district === 'string' ? raw.district.trim() : '';
-  const town = typeof raw.town === 'string' ? raw.town.trim() : '';
+  const rawApplicant =
+    raw.applicant && typeof raw.applicant === 'object'
+      ? (raw.applicant as Record<string, unknown>)
+      : undefined;
+  const rawBusiness =
+    rawApplicant?.business && typeof rawApplicant.business === 'object'
+      ? (rawApplicant.business as Record<string, unknown>)
+      : undefined;
+  const rawIdea =
+    raw.idea && typeof raw.idea === 'object' ? (raw.idea as Record<string, unknown>) : undefined;
+
+  const district =
+    (typeof rawApplicant?.district === 'string' && rawApplicant.district.trim()) ||
+    (typeof raw.district === 'string' && raw.district.trim()) ||
+    '';
+  const town =
+    (typeof rawApplicant?.town === 'string' && rawApplicant.town.trim()) ||
+    (typeof raw.town === 'string' && raw.town.trim()) ||
+    '';
+  const address =
+    (typeof rawApplicant?.address === 'string' && rawApplicant.address.trim()) ||
+    (typeof raw.address === 'string' && raw.address.trim()) ||
+    '';
   const explicitLoc = typeof raw.location === 'string' ? raw.location.trim() : '';
   const location = explicitLoc || [town, district].filter(Boolean).join(', ') || 'Botswana';
-  const rawAmount = Number(raw.requestedAmountBwp ?? raw.requestedCapital ?? raw.fundingRequested);
+
+  const rawAmount = Number(
+    raw.requestedAmountBwp ??
+      raw.requestedCapital ??
+      raw.fundingRequested ??
+      rawIdea?.requestedAmountBwp ??
+      rawIdea?.fundingRequested
+  );
+  const fundingPurpose =
+    (typeof rawIdea?.fundingPurpose === 'string' && rawIdea.fundingPurpose.trim()) ||
+    (typeof raw.fundingPurpose === 'string' && raw.fundingPurpose.trim()) ||
+    (typeof raw.purpose === 'string' && raw.purpose.trim()) ||
+    null;
+
+  const resolvedTitle =
+    (typeof rawIdea?.title === 'string' && rawIdea.title.trim()) ||
+    (typeof raw.title === 'string' && raw.title.trim()) ||
+    (typeof raw.ideaTitle === 'string' && raw.ideaTitle.trim()) ||
+    'Untitled innovation proposal';
+  const resolvedSector =
+    (typeof rawIdea?.sector === 'string' && rawIdea.sector.trim()) ||
+    (typeof raw.sector === 'string' && raw.sector.trim()) ||
+    'General Innovation';
+
+  const applicantType: 'individual' | 'business' =
+    rawApplicant?.type === 'business' || raw.accountType === 'business'
+      ? 'business'
+      : 'individual';
+  const companyName =
+    (typeof rawBusiness?.tradingName === 'string' && rawBusiness.tradingName.trim()) ||
+    (typeof raw.tradingName === 'string' && raw.tradingName.trim()) ||
+    (typeof raw.companyName === 'string' && raw.companyName.trim()) ||
+    null;
+  const cipaNumber =
+    (typeof rawBusiness?.cipaNumber === 'string' && rawBusiness.cipaNumber.trim()) ||
+    (typeof raw.cipaNumber === 'string' && raw.cipaNumber.trim()) ||
+    null;
+
+  const rawFeedbackObj =
+    rawIdea?.feedback && typeof rawIdea.feedback === 'object'
+      ? (rawIdea.feedback as Record<string, unknown>)
+      : raw.feedback && typeof raw.feedback === 'object'
+      ? (raw.feedback as Record<string, unknown>)
+      : null;
+  const feedbackDeadlineIso =
+    normalizeTimestamp(rawFeedbackObj?.dueDate || raw.feedbackDeadline || raw.slaDeadline) || null;
+  const feedback: IdeaFeedback | null = rawFeedbackObj
+    ? {
+        title:
+          (typeof rawFeedbackObj.title === 'string' && rawFeedbackObj.title.trim()) ||
+          'CEDA Officer Clarification',
+        message: typeof rawFeedbackObj.message === 'string' ? rawFeedbackObj.message.trim() : '',
+        dueDate: normalizeTimestamp(rawFeedbackObj.dueDate) || feedbackDeadlineIso,
+        fileUrl:
+          typeof rawFeedbackObj.fileUrl === 'string' && rawFeedbackObj.fileUrl.trim()
+            ? rawFeedbackObj.fileUrl.trim()
+            : null,
+      }
+    : null;
+
+  const parsedCurrentStep = Number(raw.currentStep);
+  const currentStep =
+    !Number.isNaN(parsedCurrentStep) && parsedCurrentStep >= 1 && parsedCurrentStep <= 4
+      ? Math.round(parsedCurrentStep)
+      : 1;
+
+  const explicitRef =
+    (typeof raw.reference === 'string' && raw.reference.trim()) ||
+    (typeof raw.trackingCode === 'string' && raw.trackingCode.trim()) ||
+    '';
+  const reference = explicitRef || (status === 'draft' ? 'Draft' : docId.slice(0, 12).toUpperCase());
+
+  const submittedAt =
+    normalizeTimestamp(raw.submittedAt) || (status !== 'draft' ? createdAt || null : null);
 
   return {
     id: docId,
     submitterId: String(raw.submitterId || uid),
-    title:
-      (typeof raw.title === 'string' && raw.title.trim()) ||
-      (typeof raw.ideaTitle === 'string' && raw.ideaTitle.trim()) ||
-      'Untitled innovation proposal',
-    reference:
-      (typeof raw.reference === 'string' && raw.reference.trim()) ||
-      (typeof raw.trackingCode === 'string' && raw.trackingCode.trim()) ||
-      docId.slice(0, 12).toUpperCase(),
-    sector: (typeof raw.sector === 'string' && raw.sector.trim()) || 'General Innovation',
+    title: resolvedTitle,
+    reference,
+    sector: resolvedSector,
     location,
+    town,
+    district,
+    address,
     status,
     stageStep: inferStageStep(raw.currentStage ?? raw.stage, status),
+    currentStep,
     requestedAmountBwp: !Number.isNaN(rawAmount) && rawAmount > 0 ? rawAmount : null,
+    fundingPurpose,
+    applicantType,
+    companyName,
+    cipaNumber,
     dayInStage: computeDayInStage(updatedAt, createdAt, raw.dayInStage),
-    feedbackDeadlineIso: normalizeTimestamp(raw.feedbackDeadline || raw.slaDeadline) || null,
+    feedbackDeadlineIso,
+    feedback,
+    submittedAt,
     createdAt,
     updatedAt,
   };
@@ -352,8 +489,9 @@ function isPermissionDeniedError(err: unknown): boolean {
 export async function fetchSubmitterIdeas(uid: string): Promise<SubmitterIdea[]> {
   if (!uid) return [];
 
-  if (!canQueryFirestoreForUser(uid)) {
-    return getLocalIdeasForUser(uid);
+  const firestoreReady = await ensureFirestoreReadyForUser(uid);
+  if (!firestoreReady) {
+    return firebaseConfig.apiKey.includes('MockKey') ? getLocalIdeasForUser(uid) : [];
   }
 
   const list: SubmitterIdea[] = [];
@@ -369,7 +507,7 @@ export async function fetchSubmitterIdeas(uid: string): Promise<SubmitterIdea[]>
     });
   } catch (err) {
     if (isPermissionDeniedError(err)) {
-      logFirestorePermissionWarning(err, 'list', 'ideas');
+      logFirestorePermissionError(err, 'list', 'ideas');
     } else {
       throw err instanceof Error ? err : new Error(String(err));
     }
@@ -389,9 +527,11 @@ export async function fetchSubmitterIdeas(uid: string): Promise<SubmitterIdea[]>
       ideasSucceeded = true;
     } catch (subErr) {
       if (isPermissionDeniedError(subErr)) {
-        logFirestorePermissionWarning(subErr, 'list', 'submissions');
+        logFirestorePermissionError(subErr, 'list', 'submissions');
         if (!ideasSucceeded) {
-          return getLocalIdeasForUser(uid);
+          throw new Error(
+            `Firestore permissions prevented loading your submissions from "ideas". Publish firestore.rules to your Firebase project (${firebaseConfig.projectId}) and retry.`
+          );
         }
       } else if (!ideasSucceeded) {
         throw subErr instanceof Error ? subErr : new Error(String(subErr));
@@ -410,7 +550,8 @@ export async function fetchSubmitterIdeas(uid: string): Promise<SubmitterIdea[]>
 
 export async function fetchSubmitterNotifications(uid: string): Promise<SubmitterNotification[]> {
   if (!uid) return [];
-  if (!canQueryFirestoreForUser(uid)) {
+  const firestoreReady = await ensureFirestoreReadyForUser(uid);
+  if (!firestoreReady) {
     return getLocalNotificationsForUser(uid);
   }
   try {
@@ -452,7 +593,9 @@ export async function fetchSubmitterNotifications(uid: string): Promise<Submitte
 }
 
 export async function fetchOpenCall(): Promise<OpenCallData> {
-  if (!canQueryFirestoreForUser()) return DEFAULT_OPEN_CALL;
+  if (!db || firebaseConfig.apiKey.includes('MockKey') || !auth?.currentUser) {
+    return DEFAULT_OPEN_CALL;
+  }
   try {
     const snap = await getDocs(collection(db, 'calls'));
     if (snap.empty) return DEFAULT_OPEN_CALL;
@@ -531,14 +674,55 @@ export interface WizardApplicantDetails {
   declarationAccepted: boolean;
 }
 
+export type DraftStorageTarget = 'ideas' | 'submissions' | 'local';
+
+export type InnovationType =
+  | 'new_to_botswana'
+  | 'incremental_upgrade'
+  | 'import_substitution';
+
+export interface WizardIdeaDetails {
+  title: string;
+  sector: string;
+  subSector: string;
+  problem: string;
+  solution: string;
+  beneficiaries: string;
+  innovationType: InnovationType | '';
+  trl: number | null;
+  ipStatus: string;
+  jobsEstimate: number | null;
+  impactMetric: string;
+  demographics: string[];
+}
+
+export function createEmptyIdeaDetails(): WizardIdeaDetails {
+  return {
+    title: '',
+    sector: '',
+    subSector: '',
+    problem: '',
+    solution: '',
+    beneficiaries: '',
+    innovationType: '',
+    trl: null,
+    ipStatus: '',
+    jobsEstimate: null,
+    impactMetric: '',
+    demographics: [],
+  };
+}
+
 export interface IdeaDraft {
   id: string;
   submitterId: string;
   status: 'draft' | 'submitted';
   currentStep: number;
   applicant: WizardApplicantDetails;
+  idea?: WizardIdeaDetails;
   createdAt: string;
   updatedAt: string;
+  storageTarget?: DraftStorageTarget;
 }
 
 export interface ProfileIdentityUpdate {
@@ -622,6 +806,47 @@ export function hasVerifiedIdentityProfile(profile: UserProfile | null): boolean
   return hasName && hasOmang && hasDob;
 }
 
+export function isStep1ApplicantValid(
+  applicant: WizardApplicantDetails | null | undefined,
+  profile: UserProfile | null
+): boolean {
+  if (!applicant) return false;
+
+  const hasValidIdentity = hasVerifiedIdentityProfile(profile) || (
+    applicant.firstName.trim().length >= 2 &&
+    applicant.surname.trim().length >= 2 &&
+    (isValidOmangDigits(profile?.omangOrPassport || '') ||
+      isValidOmangDigits(applicant.omang) ||
+      /^•{6}\d{3}$/.test(applicant.omang.trim())) &&
+    Boolean(applicant.dateOfBirth.trim()) &&
+    !Number.isNaN(new Date(applicant.dateOfBirth.trim()).getTime()) &&
+    new Date(applicant.dateOfBirth.trim()).getTime() < Date.now()
+  );
+
+  if (!hasValidIdentity) return false;
+
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(applicant.email.trim());
+  const phoneOk = isValidBotswanaMobile(applicant.phone);
+  const districtOk = Boolean(applicant.district.trim());
+  const townOk = applicant.town.trim().length >= 2;
+  const addressOk = applicant.address.trim().length >= 5;
+
+  if (!emailOk || !phoneOk || !districtOk || !townOk || !addressOk) {
+    return false;
+  }
+
+  if (applicant.type === 'business') {
+    const tradingOk = applicant.business.tradingName.trim().length >= 2;
+    const cipaOk = /^[A-Za-z0-9][A-Za-z0-9/-]{4,24}$/.test(
+      applicant.business.cipaNumber.trim()
+    );
+    const tinOk = /^[A-Za-z0-9][A-Za-z0-9-]{5,19}$/.test(applicant.business.tin.trim());
+    if (!tradingOk || !cipaOk || !tinOk) return false;
+  }
+
+  return Boolean(applicant.declarationAccepted);
+}
+
 export function buildApplicantPrefillFromProfile(profile: UserProfile | null): WizardApplicantDetails {
   const extended = (profile || {}) as UserProfile & { gender?: string; address?: string };
   return {
@@ -633,7 +858,7 @@ export function buildApplicantPrefillFromProfile(profile: UserProfile | null): W
     gender: extended.gender?.trim() || '',
     email: profile?.email?.trim() || '',
     phone: normalizeBotswanaPhoneInput(profile?.phone || ''),
-    district: profile?.district?.trim() || '',
+    district: normalizeDistrictCouncilName(profile?.district),
     town: profile?.town?.trim() || '',
     address: extended.address?.trim() || '',
     business: {
@@ -646,58 +871,100 @@ export function buildApplicantPrefillFromProfile(profile: UserProfile | null): W
   };
 }
 
-function readLocalDrafts(): IdeaDraft[] {
+function readLegacyLocalDraftForUser(uid: string): IdeaDraft | null {
   try {
     const raw = localStorage.getItem(LOCAL_DRAFTS_KEY);
-    if (!raw) return [];
+    if (!raw) return null;
     const parsed = JSON.parse(raw) as IdeaDraft[];
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return null;
+    return (
+      parsed
+        .filter((d) => d.submitterId === uid && d.status === 'draft')
+        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0] ||
+      null
+    );
   } catch {
-    return [];
+    return null;
   }
 }
 
-function writeLocalDrafts(drafts: IdeaDraft[]): void {
+function clearLocalDraftsForUser(uid: string): void {
   try {
-    localStorage.setItem(LOCAL_DRAFTS_KEY, JSON.stringify(drafts));
-  } catch {
-    // ignore storage errors
-  }
-}
-
-function syncDraftIntoLocalIdeasSummary(draft: IdeaDraft): void {
-  try {
-    const raw = localStorage.getItem(LOCAL_IDEAS_KEY);
-    const existing: SubmitterIdea[] = raw ? (JSON.parse(raw) as SubmitterIdea[]) : [...DEFAULT_DEMO_IDEAS];
-    const idx = existing.findIndex((item) => item.id === draft.id);
-    const title =
-      draft.applicant.type === 'business' && draft.applicant.business.tradingName.trim()
-        ? `${draft.applicant.business.tradingName.trim()} Proposal (Draft)`
-        : 'New Innovation Proposal (Draft)';
-    const summary: SubmitterIdea = {
-      id: draft.id,
-      submitterId: draft.submitterId,
-      title,
-      reference: draft.id.slice(0, 12).toUpperCase(),
-      sector: 'General Innovation',
-      location: [draft.applicant.town, draft.applicant.district].filter(Boolean).join(', ') || 'Botswana',
-      status: draft.status,
-      stageStep: 1,
-      requestedAmountBwp: null,
-      dayInStage: 1,
-      feedbackDeadlineIso: null,
-      createdAt: draft.createdAt,
-      updatedAt: draft.updatedAt,
-    };
-    if (idx >= 0) {
-      existing[idx] = { ...existing[idx], ...summary };
-    } else {
-      existing.unshift(summary);
+    const raw = localStorage.getItem(LOCAL_DRAFTS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as IdeaDraft[];
+      if (Array.isArray(parsed)) {
+        const remaining = parsed.filter((d) => d.submitterId !== uid);
+        if (remaining.length === 0) {
+          localStorage.removeItem(LOCAL_DRAFTS_KEY);
+        } else {
+          localStorage.setItem(LOCAL_DRAFTS_KEY, JSON.stringify(remaining));
+        }
+      }
     }
-    localStorage.setItem(LOCAL_IDEAS_KEY, JSON.stringify(existing));
+    const rawIdeas = localStorage.getItem(LOCAL_IDEAS_KEY);
+    if (rawIdeas) {
+      const parsedIdeas = JSON.parse(rawIdeas) as SubmitterIdea[];
+      if (Array.isArray(parsedIdeas)) {
+        const cleaned = parsedIdeas.filter(
+          (item) => !(item.submitterId === uid && item.id.startsWith('draft-'))
+        );
+        localStorage.setItem(LOCAL_IDEAS_KEY, JSON.stringify(cleaned));
+      }
+    }
   } catch {
     // ignore storage errors
   }
+}
+
+export function normalizeDraftIdea(rawIdea?: Record<string, unknown>): WizardIdeaDetails {
+  const empty = createEmptyIdeaDetails();
+  if (!rawIdea || typeof rawIdea !== 'object') return empty;
+
+  const rawInnovationType = rawIdea.innovationType;
+  const innovationType: InnovationType | '' =
+    rawInnovationType === 'new_to_botswana' ||
+    rawInnovationType === 'incremental_upgrade' ||
+    rawInnovationType === 'import_substitution'
+      ? rawInnovationType
+      : '';
+
+  const parsedTrl =
+    rawIdea.trl !== null && rawIdea.trl !== undefined && rawIdea.trl !== ''
+      ? Number(rawIdea.trl)
+      : NaN;
+  const trl =
+    Number.isInteger(parsedTrl) && parsedTrl >= 1 && parsedTrl <= 9 ? parsedTrl : null;
+
+  const parsedJobs =
+    rawIdea.jobsEstimate !== null &&
+    rawIdea.jobsEstimate !== undefined &&
+    rawIdea.jobsEstimate !== ''
+      ? Number(rawIdea.jobsEstimate)
+      : NaN;
+  const jobsEstimate =
+    Number.isInteger(parsedJobs) && parsedJobs >= 0 && parsedJobs <= 10000
+      ? parsedJobs
+      : null;
+
+  const demographics = Array.isArray(rawIdea.demographics)
+    ? rawIdea.demographics.filter((d): d is string => typeof d === 'string' && Boolean(d.trim()))
+    : [];
+
+  return {
+    title: typeof rawIdea.title === 'string' ? rawIdea.title : '',
+    sector: typeof rawIdea.sector === 'string' ? rawIdea.sector : '',
+    subSector: typeof rawIdea.subSector === 'string' ? rawIdea.subSector : '',
+    problem: typeof rawIdea.problem === 'string' ? rawIdea.problem : '',
+    solution: typeof rawIdea.solution === 'string' ? rawIdea.solution : '',
+    beneficiaries: typeof rawIdea.beneficiaries === 'string' ? rawIdea.beneficiaries : '',
+    innovationType,
+    trl,
+    ipStatus: typeof rawIdea.ipStatus === 'string' ? rawIdea.ipStatus : '',
+    jobsEstimate,
+    impactMetric: typeof rawIdea.impactMetric === 'string' ? rawIdea.impactMetric : '',
+    demographics,
+  };
 }
 
 function normalizeDraftApplicant(
@@ -726,7 +993,10 @@ function normalizeDraftApplicant(
       typeof raw.phone === 'string' && raw.phone.trim()
         ? normalizeBotswanaPhoneInput(raw.phone)
         : fallback.phone,
-    district: typeof raw.district === 'string' && raw.district.trim() ? raw.district : fallback.district,
+    district:
+      typeof raw.district === 'string' && raw.district.trim()
+        ? normalizeDistrictCouncilName(raw.district)
+        : fallback.district,
     town: typeof raw.town === 'string' && raw.town.trim() ? raw.town : fallback.town,
     address: typeof raw.address === 'string' ? raw.address : fallback.address,
     business: {
@@ -753,7 +1023,8 @@ export async function loadUserProfileForWizard(
   fallbackUser: UserProfile | null
 ): Promise<UserProfile | null> {
   if (!uid) return fallbackUser;
-  if (!canQueryFirestoreForUser(uid)) {
+  const firestoreReady = await ensureFirestoreReadyForUser(uid);
+  if (!firestoreReady) {
     return fallbackUser;
   }
   try {
@@ -774,96 +1045,230 @@ export async function loadUserProfileForWizard(
   return fallbackUser;
 }
 
+function buildFirestoreIdeaPayload(draft: IdeaDraft, nowIso: string): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    id: draft.id,
+    submitterId: draft.submitterId,
+    status: 'draft',
+    currentStep: draft.currentStep,
+    applicant: draft.applicant,
+    district: draft.applicant.district || '',
+    town: draft.applicant.town || '',
+    createdAt: draft.createdAt || nowIso,
+    updatedAt: nowIso,
+  };
+  if (draft.idea) {
+    payload.idea = draft.idea;
+  }
+  return payload;
+}
+
+function buildFirestoreSubmissionDraftPayload(
+  draft: IdeaDraft,
+  nowIso: string
+): Record<string, unknown> {
+  const title =
+    draft.idea?.title?.trim() ||
+    (draft.applicant.type === 'business' && draft.applicant.business.tradingName.trim()
+      ? `${draft.applicant.business.tradingName.trim()} Proposal (Draft)`
+      : 'New Innovation Proposal (Draft)');
+  const suffix = draft.id.replace(/[^a-zA-Z0-9]/g, '').slice(-6).toUpperCase() || '000001';
+  const payload: Record<string, unknown> = {
+    id: draft.id,
+    trackingCode: `CEDA-DRAFT-${suffix}`,
+    submitterId: draft.submitterId,
+    title,
+    sector: draft.idea?.sector?.trim() || 'General Innovation',
+    district: draft.applicant.district || 'Botswana',
+    town: draft.applicant.town || '',
+    requestedCapital: 0,
+    currentStage: 1,
+    stageName: 'Draft',
+    status: 'draft',
+    currentStep: draft.currentStep,
+    applicant: draft.applicant,
+    isBlinded: false,
+    createdAt: draft.createdAt || nowIso,
+    updatedAt: nowIso,
+  };
+  if (draft.idea) {
+    payload.idea = draft.idea;
+  }
+  return payload;
+}
+
+export async function findExistingIdeaDraft(
+  uid: string,
+  profile: UserProfile | null
+): Promise<IdeaDraft | null> {
+  const prefill = buildApplicantPrefillFromProfile(profile);
+  const nowIso = new Date().toISOString();
+
+  const firestoreReady = await ensureFirestoreReadyForUser(uid);
+  if (!firestoreReady) {
+    throw new Error(getFirestoreAuthFailureReason(uid));
+  }
+
+  let ideasDenied = false;
+
+  // 1. Primary collection: `ideas`
+  try {
+    const snap = await getDocs(query(collection(db, 'ideas'), where('submitterId', '==', uid)));
+    const drafts: IdeaDraft[] = [];
+
+    snap.forEach((docSnap) => {
+      const raw = docSnap.data() as Record<string, unknown>;
+      if (String(raw.status || '').toLowerCase() === 'draft') {
+        drafts.push({
+          id: docSnap.id,
+          submitterId: uid,
+          status: 'draft',
+          currentStep: Math.max(1, Math.min(4, Number(raw.currentStep) || 1)),
+          applicant: normalizeDraftApplicant(
+            raw.applicant as Record<string, unknown> | undefined,
+            prefill
+          ),
+          idea: normalizeDraftIdea(raw.idea as Record<string, unknown> | undefined),
+          createdAt: normalizeTimestamp(raw.createdAt) || nowIso,
+          updatedAt: normalizeTimestamp(raw.updatedAt) || nowIso,
+          storageTarget: 'ideas',
+        });
+      }
+    });
+
+    if (drafts.length > 0) {
+      drafts.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      clearLocalDraftsForUser(uid);
+      return drafts[0];
+    }
+  } catch (err) {
+    if (!isPermissionDeniedError(err)) {
+      throw err instanceof Error ? err : new Error('Unable to load your draft from Firestore.');
+    }
+    ideasDenied = true;
+    logFirestorePermissionError(err, 'list', 'ideas');
+  }
+
+  // 2. Fallback Firestore collection: `submissions`
+  try {
+    const subSnap = await getDocs(
+      query(collection(db, 'submissions'), where('submitterId', '==', uid))
+    );
+    const subDrafts: IdeaDraft[] = [];
+
+    subSnap.forEach((docSnap) => {
+      const raw = docSnap.data() as Record<string, unknown>;
+      if (String(raw.status || '').toLowerCase() === 'draft') {
+        subDrafts.push({
+          id: docSnap.id,
+          submitterId: uid,
+          status: 'draft',
+          currentStep: Math.max(1, Math.min(4, Number(raw.currentStep) || 1)),
+          applicant: normalizeDraftApplicant(
+            raw.applicant as Record<string, unknown> | undefined,
+            prefill
+          ),
+          idea: normalizeDraftIdea(raw.idea as Record<string, unknown> | undefined),
+          createdAt: normalizeTimestamp(raw.createdAt) || nowIso,
+          updatedAt: normalizeTimestamp(raw.updatedAt) || nowIso,
+          storageTarget: 'submissions',
+        });
+      }
+    });
+
+    if (subDrafts.length > 0) {
+      subDrafts.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      clearLocalDraftsForUser(uid);
+      return subDrafts[0];
+    }
+  } catch (subErr) {
+    if (!isPermissionDeniedError(subErr)) {
+      throw subErr instanceof Error
+        ? subErr
+        : new Error('Unable to load your draft from Firestore.');
+    }
+    logFirestorePermissionError(subErr, 'list', 'submissions');
+    if (ideasDenied) {
+      throw new Error(
+        `Missing Firestore permissions for "ideas". Publish the updated firestore.rules to your Firebase project (${firebaseConfig.projectId}) and retry.`
+      );
+    }
+  }
+
+  return null;
+}
+
 export async function findOrCreateIdeaDraft(
   uid: string,
   profile: UserProfile | null
 ): Promise<IdeaDraft> {
+  const existing = await findExistingIdeaDraft(uid, profile);
+  if (existing) return existing;
+
   const prefill = buildApplicantPrefillFromProfile(profile);
+  const legacyLocal = readLegacyLocalDraftForUser(uid);
+  const initialApplicant = legacyLocal
+    ? normalizeDraftApplicant(
+        legacyLocal.applicant as unknown as Record<string, unknown>,
+        prefill
+      )
+    : prefill;
+  const initialIdea = legacyLocal?.idea
+    ? normalizeDraftIdea(legacyLocal.idea as unknown as Record<string, unknown>)
+    : createEmptyIdeaDetails();
+  const initialStep = legacyLocal ? Math.max(1, Math.min(4, legacyLocal.currentStep || 1)) : 1;
   const nowIso = new Date().toISOString();
 
-  if (canQueryFirestoreForUser(uid)) {
-    try {
-      const snap = await getDocs(query(collection(db, 'ideas'), where('submitterId', '==', uid)));
-      const drafts: IdeaDraft[] = [];
-
-      snap.forEach((docSnap) => {
-        const raw = docSnap.data() as Record<string, unknown>;
-        if (String(raw.status || '').toLowerCase() === 'draft') {
-          drafts.push({
-            id: docSnap.id,
-            submitterId: uid,
-            status: 'draft',
-            currentStep: Math.max(1, Math.min(4, Number(raw.currentStep) || 1)),
-            applicant: normalizeDraftApplicant(
-              raw.applicant as Record<string, unknown> | undefined,
-              prefill
-            ),
-            createdAt: normalizeTimestamp(raw.createdAt) || nowIso,
-            updatedAt: normalizeTimestamp(raw.updatedAt) || nowIso,
-          });
-        }
-      });
-
-      if (drafts.length > 0) {
-        drafts.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-        const latest = drafts[0];
-        const allLocal = readLocalDrafts().filter((d) => d.id !== latest.id);
-        writeLocalDrafts([latest, ...allLocal]);
-        return latest;
-      }
-
-      // Create ONE new draft in Firestore
-      const newDocRef = doc(collection(db, 'ideas'));
-      const newDraft: IdeaDraft = {
-        id: newDocRef.id,
-        submitterId: uid,
-        status: 'draft',
-        currentStep: 1,
-        applicant: prefill,
-        createdAt: nowIso,
-        updatedAt: nowIso,
-      };
-      await setDoc(newDocRef, newDraft);
-      const allLocal = readLocalDrafts().filter((d) => d.id !== newDraft.id);
-      writeLocalDrafts([newDraft, ...allLocal]);
-      return newDraft;
-    } catch (err) {
-      if (!isPermissionDeniedError(err)) {
-        throw err instanceof Error ? err : new Error('Unable to load or create draft.');
-      }
-      logFirestorePermissionWarning(err, 'list', 'ideas');
-    }
-  }
-
-  // Local / fallback draft store
-  const localDrafts = readLocalDrafts();
-  const existing = localDrafts
-    .filter((d) => d.submitterId === uid && d.status === 'draft')
-    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0];
-
-  if (existing) {
-    const normalized: IdeaDraft = {
-      ...existing,
-      applicant: normalizeDraftApplicant(
-        existing.applicant as unknown as Record<string, unknown>,
-        prefill
-      ),
+  // 1. Create in Firestore `ideas`
+  try {
+    const newDocRef = doc(collection(db, 'ideas'));
+    const newDraft: IdeaDraft = {
+      id: newDocRef.id,
+      submitterId: uid,
+      status: 'draft',
+      currentStep: initialStep,
+      applicant: initialApplicant,
+      idea: initialIdea,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      storageTarget: 'ideas',
     };
-    return normalized;
+    await setDoc(newDocRef, buildFirestoreIdeaPayload(newDraft, nowIso));
+    clearLocalDraftsForUser(uid);
+    return newDraft;
+  } catch (err) {
+    if (!isPermissionDeniedError(err)) {
+      throw err instanceof Error ? err : new Error('Unable to create draft in Firestore.');
+    }
+    logFirestorePermissionError(err, 'create', 'ideas');
   }
 
-  const created: IdeaDraft = {
-    id: `draft-${uid.slice(-6)}-${Date.now()}`,
-    submitterId: uid,
-    status: 'draft',
-    currentStep: 1,
-    applicant: prefill,
-    createdAt: nowIso,
-    updatedAt: nowIso,
-  };
-  writeLocalDrafts([created, ...localDrafts]);
-  syncDraftIntoLocalIdeasSummary(created);
-  return created;
+  // 2. Fallback create in Firestore `submissions`
+  try {
+    const newSubRef = doc(collection(db, 'submissions'));
+    const newSubDraft: IdeaDraft = {
+      id: newSubRef.id,
+      submitterId: uid,
+      status: 'draft',
+      currentStep: initialStep,
+      applicant: initialApplicant,
+      idea: initialIdea,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      storageTarget: 'submissions',
+    };
+    await setDoc(newSubRef, buildFirestoreSubmissionDraftPayload(newSubDraft, nowIso));
+    clearLocalDraftsForUser(uid);
+    return newSubDraft;
+  } catch (subErr) {
+    if (!isPermissionDeniedError(subErr)) {
+      throw subErr instanceof Error ? subErr : new Error('Unable to create draft in Firestore.');
+    }
+    logFirestorePermissionError(subErr, 'create', 'submissions');
+    throw new Error(
+      `Unable to create your application draft in Firestore (Missing or insufficient permissions). Publish firestore.rules to your Firebase project (${firebaseConfig.projectId}) and retry.`
+    );
+  }
 }
 
 function updateLocalUserProfileIdentity(uid: string, patch: ProfileIdentityUpdate): void {
@@ -917,71 +1322,181 @@ export async function saveIdeaDraft(
     updatedAt: nowIso,
   };
 
+  const firestoreReady = await ensureFirestoreReadyForUser(draft.submitterId);
+  if (!firestoreReady) {
+    throw new Error(getFirestoreAuthFailureReason(draft.submitterId));
+  }
+
   // Update user's profile with entered identity/location fields when provided
   if (profileIdentityUpdate && Object.keys(profileIdentityUpdate).length > 0) {
     updateLocalUserProfileIdentity(draft.submitterId, profileIdentityUpdate);
-    if (canQueryFirestoreForUser(draft.submitterId)) {
-      try {
-        const cleanProfilePatch: Record<string, unknown> = {
-          updatedAt: nowIso,
-        };
-        if (profileIdentityUpdate.firstName) cleanProfilePatch.firstName = profileIdentityUpdate.firstName;
-        if (profileIdentityUpdate.surname) cleanProfilePatch.surname = profileIdentityUpdate.surname;
-        if (profileIdentityUpdate.firstName || profileIdentityUpdate.surname) {
-          cleanProfilePatch.fullName = [
-            profileIdentityUpdate.firstName || sanitizedApplicant.firstName,
-            profileIdentityUpdate.surname || sanitizedApplicant.surname,
-          ]
-            .filter(Boolean)
-            .join(' ');
-        }
-        if (profileIdentityUpdate.omangOrPassport) {
-          cleanProfilePatch.omangOrPassport = profileIdentityUpdate.omangOrPassport;
-        }
-        if (profileIdentityUpdate.dob) cleanProfilePatch.dob = profileIdentityUpdate.dob;
-        if (profileIdentityUpdate.gender !== undefined) {
-          cleanProfilePatch.gender = profileIdentityUpdate.gender;
-        }
-        if (profileIdentityUpdate.district) cleanProfilePatch.district = profileIdentityUpdate.district;
-        if (profileIdentityUpdate.town) cleanProfilePatch.town = profileIdentityUpdate.town;
-        if (profileIdentityUpdate.address) cleanProfilePatch.address = profileIdentityUpdate.address;
+    try {
+      const cleanProfilePatch: Record<string, unknown> = {
+        updatedAt: nowIso,
+      };
+      if (profileIdentityUpdate.firstName) cleanProfilePatch.firstName = profileIdentityUpdate.firstName;
+      if (profileIdentityUpdate.surname) cleanProfilePatch.surname = profileIdentityUpdate.surname;
+      if (profileIdentityUpdate.firstName || profileIdentityUpdate.surname) {
+        cleanProfilePatch.fullName = [
+          profileIdentityUpdate.firstName || sanitizedApplicant.firstName,
+          profileIdentityUpdate.surname || sanitizedApplicant.surname,
+        ]
+          .filter(Boolean)
+          .join(' ');
+      }
+      if (profileIdentityUpdate.omangOrPassport) {
+        cleanProfilePatch.omangOrPassport = profileIdentityUpdate.omangOrPassport;
+      }
+      if (profileIdentityUpdate.dob) cleanProfilePatch.dob = profileIdentityUpdate.dob;
+      if (profileIdentityUpdate.gender !== undefined) {
+        cleanProfilePatch.gender = profileIdentityUpdate.gender;
+      }
+      if (profileIdentityUpdate.district) cleanProfilePatch.district = profileIdentityUpdate.district;
+      if (profileIdentityUpdate.town) cleanProfilePatch.town = profileIdentityUpdate.town;
+      if (profileIdentityUpdate.address) cleanProfilePatch.address = profileIdentityUpdate.address;
 
-        await setDoc(doc(db, 'users', draft.submitterId), cleanProfilePatch, { merge: true });
-      } catch (err) {
-        if (!isPermissionDeniedError(err)) {
-          console.warn('Could not sync profile identity fields to Firestore.');
-        }
+      await setDoc(doc(db, 'users', draft.submitterId), cleanProfilePatch, { merge: true });
+    } catch (err) {
+      if (!isPermissionDeniedError(err)) {
+        console.warn('Could not sync profile identity fields to Firestore.');
       }
     }
   }
 
-  if (canQueryFirestoreForUser(draft.submitterId)) {
+  let savedToCloud = false;
+
+  if (updatedDraft.storageTarget !== 'submissions') {
     try {
       await setDoc(
         doc(db, 'ideas', draft.id),
-        {
-          id: updatedDraft.id,
-          submitterId: updatedDraft.submitterId,
-          status: 'draft',
-          currentStep: updatedDraft.currentStep,
-          applicant: updatedDraft.applicant,
-          createdAt: updatedDraft.createdAt || nowIso,
-          updatedAt: nowIso,
-        },
+        buildFirestoreIdeaPayload(updatedDraft, nowIso),
         { merge: true }
       );
+      updatedDraft.storageTarget = 'ideas';
+      savedToCloud = true;
     } catch (err) {
       if (!isPermissionDeniedError(err)) {
-        throw err instanceof Error ? err : new Error('Could not save draft.');
+        throw err instanceof Error ? err : new Error('Could not save draft to Firestore.');
       }
-      logFirestorePermissionWarning(err, 'list', 'ideas');
+      logFirestorePermissionError(err, 'write', `ideas/${draft.id}`);
     }
   }
 
-  const others = readLocalDrafts().filter((d) => d.id !== updatedDraft.id);
-  writeLocalDrafts([updatedDraft, ...others]);
-  syncDraftIntoLocalIdeasSummary(updatedDraft);
+  if (!savedToCloud) {
+    try {
+      await setDoc(
+        doc(db, 'submissions', draft.id),
+        buildFirestoreSubmissionDraftPayload(updatedDraft, nowIso),
+        { merge: true }
+      );
+      updatedDraft.storageTarget = 'submissions';
+      savedToCloud = true;
+    } catch (subErr) {
+      if (!isPermissionDeniedError(subErr)) {
+        throw subErr instanceof Error ? subErr : new Error('Could not save draft to Firestore.');
+      }
+      logFirestorePermissionError(subErr, 'write', `submissions/${draft.id}`);
+      throw new Error(
+        `Could not save draft to Firestore (Missing or insufficient permissions). Publish firestore.rules to your Firebase project (${firebaseConfig.projectId}) and retry.`
+      );
+    }
+  }
 
+  clearLocalDraftsForUser(draft.submitterId);
+  return updatedDraft;
+}
+
+export async function saveIdeaStep2(
+  draft: IdeaDraft,
+  ideaInput: WizardIdeaDetails,
+  nextStep: number
+): Promise<IdeaDraft> {
+  const firestoreReady = await ensureFirestoreReadyForUser(draft.submitterId);
+  if (!firestoreReady) {
+    throw new Error(getFirestoreAuthFailureReason(draft.submitterId));
+  }
+
+  const nowIso = new Date().toISOString();
+  const cleanTrl =
+    ideaInput.trl !== null &&
+    Number.isInteger(ideaInput.trl) &&
+    ideaInput.trl >= 1 &&
+    ideaInput.trl <= 9
+      ? ideaInput.trl
+      : null;
+  const cleanJobs =
+    ideaInput.jobsEstimate !== null &&
+    Number.isInteger(ideaInput.jobsEstimate) &&
+    ideaInput.jobsEstimate >= 0 &&
+    ideaInput.jobsEstimate <= 10000
+      ? ideaInput.jobsEstimate
+      : null;
+
+  const sanitizedIdea: WizardIdeaDetails = {
+    title: ideaInput.title.slice(0, 120),
+    sector: ideaInput.sector.trim(),
+    subSector: ideaInput.subSector.trim(),
+    problem: ideaInput.problem.slice(0, 1000),
+    solution: ideaInput.solution.slice(0, 1000),
+    beneficiaries: ideaInput.beneficiaries.slice(0, 500),
+    innovationType: ideaInput.innovationType,
+    trl: cleanTrl,
+    ipStatus: ideaInput.ipStatus.trim(),
+    jobsEstimate: cleanJobs,
+    impactMetric: ideaInput.impactMetric.trim(),
+    demographics: Array.from(new Set(ideaInput.demographics.filter(Boolean))),
+  };
+
+  const resolvedStep = Math.max(1, Math.min(4, nextStep));
+  const updatedDraft: IdeaDraft = {
+    ...draft,
+    status: 'draft',
+    currentStep: resolvedStep,
+    idea: sanitizedIdea,
+    updatedAt: nowIso,
+  };
+
+  // Write ONLY `idea`, `currentStep`, and `updatedAt` so `applicant` remains untouched
+  const step2Payload: Record<string, unknown> = {
+    idea: sanitizedIdea,
+    currentStep: resolvedStep,
+    updatedAt: nowIso,
+  };
+
+  let savedToCloud = false;
+
+  if (updatedDraft.storageTarget !== 'submissions') {
+    try {
+      await setDoc(doc(db, 'ideas', draft.id), step2Payload, { merge: true });
+      updatedDraft.storageTarget = 'ideas';
+      savedToCloud = true;
+    } catch (err) {
+      if (!isPermissionDeniedError(err)) {
+        throw err instanceof Error ? err : new Error('Could not save idea details to Firestore.');
+      }
+      logFirestorePermissionError(err, 'update', `ideas/${draft.id}`);
+    }
+  }
+
+  if (!savedToCloud) {
+    try {
+      await setDoc(doc(db, 'submissions', draft.id), step2Payload, { merge: true });
+      updatedDraft.storageTarget = 'submissions';
+      savedToCloud = true;
+    } catch (subErr) {
+      if (!isPermissionDeniedError(subErr)) {
+        throw subErr instanceof Error
+          ? subErr
+          : new Error('Could not save idea details to Firestore.');
+      }
+      logFirestorePermissionError(subErr, 'update', `submissions/${draft.id}`);
+      throw new Error(
+        `Could not save idea details to Firestore (Missing or insufficient permissions). Publish firestore.rules to your Firebase project (${firebaseConfig.projectId}) and retry.`
+      );
+    }
+  }
+
+  clearLocalDraftsForUser(draft.submitterId);
   return updatedDraft;
 }
 

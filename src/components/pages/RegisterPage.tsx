@@ -19,7 +19,7 @@ export const RegisterPage: React.FC = () => {
   const [surname, setSurname] = useState('');
   const [omangOrPassport, setOmangOrPassport] = useState('');
   const [dob, setDob] = useState('');
-  const [selectedDistrict, setSelectedDistrict] = useState('South-East District');
+  const [selectedDistrict, setSelectedDistrict] = useState('Gaborone City Council');
   const [selectedTown, setSelectedTown] = useState('Gaborone');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');

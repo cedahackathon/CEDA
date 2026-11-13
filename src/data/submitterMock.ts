@@ -116,16 +116,26 @@ export const DEFAULT_OPEN_CALL: OpenCallData = {
   guidelinesRoute: '/guidelines',
 };
 
+const CHAT_START_HOUR = 9;
+const CHAT_END_HOUR = 16;
+
+function formatHour24(hour: number): string {
+  return `${String(hour).padStart(2, '0')}:00`;
+}
+
 export const SUBMITTER_SUPPORT_CONFIG: SupportConfig = {
   branchCount: 14,
   advisoryCopy: 'Advisors across our 14 branches can help with your submission.',
-  chatStartHour: 9,
-  chatEndHour: 16,
-  chatHoursLabel: 'Chat hours: 09:00 to 16:00, working days (CAT)',
+  chatStartHour: CHAT_START_HOUR,
+  chatEndHour: CHAT_END_HOUR,
+  chatHoursLabel: `${formatHour24(CHAT_START_HOUR)} to ${formatHour24(CHAT_END_HOUR)}, Mon–Fri`,
   chatUnavailableLabel: 'Agent not available at the moment',
   hotline: '1800 2332',
   email: 'enquiries@ceda.co.bw',
 };
+
+export const SUBMITTER_WRITING_TIP =
+  'Be specific and concrete: explain the local problem in measurable terms, how your solution works in practice, and who directly benefits.';
 
 export const SUBMITTER_ONBOARDING_STEPS: OnboardingStep[] = [
   {
@@ -224,3 +234,202 @@ export function isLiveChatAvailableNow(now: Date = new Date()): boolean {
     return false;
   }
 }
+
+export interface SubmissionStatusMeta {
+  key: string;
+  label: string;
+  icon: string;
+  pillClasses: string;
+  dotColorClass: string;
+}
+
+export const SUBMISSION_STATUS_MAP: Record<string, SubmissionStatusMeta> = {
+  draft: {
+    key: 'draft',
+    label: 'Draft',
+    icon: 'edit_note',
+    pillClasses: 'bg-[#f1ede8] text-[#4a3b36] border-[#d8cec6]',
+    dotColorClass: 'bg-[#8d706b]',
+  },
+  submitted: {
+    key: 'submitted',
+    label: 'Submitted',
+    icon: 'task_alt',
+    pillClasses: 'bg-[#f7f3ee] text-[#38231d] border-[#e2bfb8]',
+    dotColorClass: 'bg-[#7c0700]',
+  },
+  under_review: {
+    key: 'under_review',
+    label: 'Under review',
+    icon: 'schedule',
+    pillClasses: 'bg-[#fdf1eb] text-[#7c3515] border-[#edc7b7]',
+    dotColorClass: 'bg-[#a02010]',
+  },
+  feedback_requested: {
+    key: 'feedback_requested',
+    label: 'Feedback requested',
+    icon: 'chat_bubble_outline',
+    pillClasses: 'bg-[#fde9e4] text-[#8f1c0e] border-[#f0beb4]',
+    dotColorClass: 'bg-[#a02010]',
+  },
+  approved: {
+    key: 'approved',
+    label: 'Approved',
+    icon: 'check_circle_outline',
+    pillClasses: 'bg-[#eef6ee] text-[#1f5c2e] border-[#c4dfc9]',
+    dotColorClass: 'bg-[#2e7d32]',
+  },
+  awarded: {
+    key: 'awarded',
+    label: 'Awarded',
+    icon: 'workspace_premium',
+    pillClasses: 'bg-[#eef6ee] text-[#1f5c2e] border-[#c4dfc9]',
+    dotColorClass: 'bg-[#2e7d32]',
+  },
+  declined: {
+    key: 'declined',
+    label: 'Declined',
+    icon: 'cancel',
+    pillClasses: 'bg-[#f9e7e7] text-[#9b1c1c] border-[#ecc2c2]',
+    dotColorClass: 'bg-[#ba1a1a]',
+  },
+};
+
+export const NEUTRAL_STATUS_FALLBACK: SubmissionStatusMeta = {
+  key: 'unknown',
+  label: 'Status pending',
+  icon: 'label',
+  pillClasses: 'bg-[#f3f2ef] text-[#4b4742] border-[#dcd8d0]',
+  dotColorClass: 'bg-[#7a746e]',
+};
+
+export function getSubmissionStatusMeta(rawStatus: string): SubmissionStatusMeta {
+  const normalized = String(rawStatus || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_');
+  if (SUBMISSION_STATUS_MAP[normalized]) {
+    return SUBMISSION_STATUS_MAP[normalized];
+  }
+  const readable = normalized
+    ? normalized.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+    : NEUTRAL_STATUS_FALLBACK.label;
+  return {
+    ...NEUTRAL_STATUS_FALLBACK,
+    key: normalized || 'unknown',
+    label: readable,
+  };
+}
+
+export interface SubmissionStageRule {
+  label: (stageStep: number, currentStep?: number) => string;
+  textClass: string;
+  activeDotClass: string;
+  halted?: boolean;
+}
+
+export const SUBMISSION_STAGE_MAP: Record<string, SubmissionStageRule> = {
+  draft: {
+    label: (_stageStep, currentStep = 1) =>
+      `Drafting, step ${Math.max(1, Math.min(4, currentStep))} of 4`,
+    textClass: 'text-[#6b4f47]',
+    activeDotClass: 'bg-[#a4938c]',
+  },
+  submitted: {
+    label: () => 'Submitted (Level 1)',
+    textClass: 'text-[#38231d]',
+    activeDotClass: 'bg-[#7c0700]',
+  },
+  under_review: {
+    label: (stageStep) => `Review (Level ${Math.max(1, Math.min(5, stageStep))})`,
+    textClass: 'text-[#38231d]',
+    activeDotClass: 'bg-[#7c0700]',
+  },
+  feedback_requested: {
+    label: () => 'Feedback requested',
+    textClass: 'text-[#8f1c0e]',
+    activeDotClass: 'bg-[#a02010]',
+  },
+  approved: {
+    label: () => 'Award pending',
+    textClass: 'text-[#38231d]',
+    activeDotClass: 'bg-[#7c0700]',
+  },
+  awarded: {
+    label: () => 'Awarded',
+    textClass: 'text-[#1f5c2e]',
+    activeDotClass: 'bg-[#2e7d32]',
+  },
+  declined: {
+    label: () => 'Review, halted',
+    textClass: 'text-[#9b1c1c]',
+    activeDotClass: 'bg-[#a02010]',
+    halted: true,
+  },
+};
+
+export interface SubmissionStageMeta {
+  label: string;
+  textClass: string;
+  activeDotClass: string;
+  completedDots: number;
+  haltedDotIndex: number | null; // 1-indexed dot where X appears when declined
+}
+
+export function getSubmissionStageMeta(params: {
+  status: string;
+  stageStep: number;
+  currentStep?: number;
+}): SubmissionStageMeta {
+  const normalized = String(params.status || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_');
+  const clampedStage = Math.max(1, Math.min(5, Math.round(params.stageStep || 1)));
+  const rule = SUBMISSION_STAGE_MAP[normalized];
+
+  if (!rule) {
+    return {
+      label: `Stage ${clampedStage} of 5`,
+      textClass: 'text-[#5a413c]',
+      activeDotClass: 'bg-[#7a746e]',
+      completedDots: clampedStage,
+      haltedDotIndex: null,
+    };
+  }
+
+  if (normalized === 'draft') {
+    return {
+      label: rule.label(clampedStage, params.currentStep),
+      textClass: rule.textClass,
+      activeDotClass: rule.activeDotClass,
+      completedDots: 1,
+      haltedDotIndex: null,
+    };
+  }
+
+  if (rule.halted) {
+    const haltedIndex = Math.max(2, Math.min(5, clampedStage));
+    return {
+      label: rule.label(clampedStage, params.currentStep),
+      textClass: rule.textClass,
+      activeDotClass: rule.activeDotClass,
+      completedDots: haltedIndex - 1,
+      haltedDotIndex: haltedIndex,
+    };
+  }
+
+  return {
+    label: rule.label(clampedStage, params.currentStep),
+    textClass: rule.textClass,
+    activeDotClass: rule.activeDotClass,
+    completedDots:
+      normalized === 'approved'
+        ? Math.max(4, clampedStage)
+        : normalized === 'awarded'
+        ? 5
+        : clampedStage,
+    haltedDotIndex: null,
+  };
+}
+

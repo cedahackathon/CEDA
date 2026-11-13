@@ -185,9 +185,24 @@ class AuthService {
       const savedUsers = localStorage.getItem(STORAGE_USERS_KEY);
       if (savedUsers) {
         const parsed: UserProfile[] = JSON.parse(savedUsers);
-        parsed.forEach((u) => this.users.set(u.id, u));
-      } else {
-        DEFAULT_SEED_USERS.forEach((u) => this.users.set(u.id, u));
+        if (Array.isArray(parsed)) {
+          parsed.forEach((u) => {
+            if (u && u.id) this.users.set(u.id, u);
+          });
+        }
+      }
+      // Ensure all default demo seed accounts exist locally if not overridden by email
+      let addedSeed = false;
+      DEFAULT_SEED_USERS.forEach((seed) => {
+        const existsByIdOrEmail = Array.from(this.users.values()).some(
+          (u) => u.id === seed.id || u.email.toLowerCase() === seed.email.toLowerCase()
+        );
+        if (!existsByIdOrEmail) {
+          this.users.set(seed.id, seed);
+          addedSeed = true;
+        }
+      });
+      if (!savedUsers || addedSeed) {
         this.saveUsers();
       }
 
@@ -280,11 +295,17 @@ class AuthService {
   public findUserByIdentifier(identifier: string): UserProfile | undefined {
     const clean = (identifier || '').trim().toLowerCase();
     if (!clean) return undefined;
-    const cleanPhoneInput = clean.replace(/[\s\-\+]/g, '');
+    const rawDigits = clean.replace(/[\s\-+()]/g, '');
+    const cleanPhoneInput =
+      rawDigits.startsWith('267') && rawDigits.length >= 11 ? rawDigits.slice(3) : rawDigits;
 
     for (const user of this.users.values()) {
       const userEmail = typeof user.email === 'string' ? user.email.trim().toLowerCase() : '';
-      const userPhone = typeof user.phone === 'string' ? user.phone.replace(/[\s\-\+]/g, '') : '';
+      const userRawPhone = typeof user.phone === 'string' ? user.phone.replace(/[\s\-+()]/g, '') : '';
+      const userPhone =
+        userRawPhone.startsWith('267') && userRawPhone.length >= 11
+          ? userRawPhone.slice(3)
+          : userRawPhone;
       const userOmang = typeof user.omangOrPassport === 'string' ? user.omangOrPassport.trim().toLowerCase() : '';
 
       if (
@@ -346,6 +367,7 @@ class AuthService {
       }
     } catch (err: unknown) {
       console.error('Firebase Auth registration error:', err);
+<<<<<<< HEAD
       const errorCode =
         typeof err === 'object' && err !== null && 'code' in err ? err.code : undefined;
       if (errorCode === 'auth/email-already-in-use') {
@@ -353,7 +375,25 @@ class AuthService {
       } else if (errorCode === 'auth/invalid-email') {
         throw new Error('The email address provided is invalid.');
       } else if (errorCode === 'auth/operation-not-allowed') {
+=======
+      const code = err?.code || '';
+      if (code === 'auth/email-already-in-use') {
+        throw new Error('This email address is already registered. Please log in or use another email.');
+      } else if (code === 'auth/invalid-email') {
+        throw new Error('The email address provided is invalid.');
+      } else if (code === 'auth/operation-not-allowed') {
+>>>>>>> b9d00eb498543432e7f03a179d6924c6fc7898cc
         throw new Error('Email/password sign-in is not enabled in Firebase Console.');
+      } else if (code === 'auth/weak-password') {
+        throw new Error('Password does not meet Firebase strength requirements.');
+      } else if (code === 'auth/unauthorized-domain') {
+        throw new Error(
+          'This hosting domain is not authorized in Firebase Authentication. Add it under Firebase Console → Authentication → Settings → Authorized domains.'
+        );
+      } else if (!firebaseConfig.apiKey.includes('MockKey')) {
+        throw new Error(
+          err?.message || 'Unable to register account in Firebase Authentication. Please try again.'
+        );
       }
       throw err;
     }
@@ -641,14 +681,66 @@ class AuthService {
           this.users.set(uid, user);
           this.saveUsers();
         }
-      } catch (err) {
-        console.warn('Firebase login auth warning:', err);
-        // Fallback to local seed / password check if offline
-        if (user && user.passwordHash) {
-          const match = verifyPassword(payload.password, user.passwordHash);
-          if (!match) {
+      } catch (err: any) {
+        const code = err?.code || '';
+        console.warn('Firebase login auth warning:', code || err);
+
+        // Surface explicit Firebase project/deployment misconfiguration errors cleanly
+        if (code === 'auth/operation-not-allowed') {
+          return {
+            success: false,
+            message:
+              'Email/Password sign-in is disabled in Firebase Console (Authentication → Sign-in method).',
+          };
+        }
+        if (code === 'auth/unauthorized-domain') {
+          return {
+            success: false,
+            message:
+              'This domain is not authorized in Firebase Authentication. Add your Vercel domain in Firebase Console → Authentication → Settings → Authorized domains.',
+          };
+        }
+        if (code === 'auth/too-many-requests') {
+          return {
+            success: false,
+            message: 'Too many failed sign-in attempts. Please wait a few minutes and try again.',
+          };
+        }
+        if (code === 'auth/user-disabled') {
+          return {
+            success: false,
+            message: 'This account has been disabled in Firebase Authentication.',
+          };
+        }
+
+        // Fallback to local seed / cached demo password check (e.g. demo accounts or offline/mock key)
+        const seedFallback =
+          user ||
+          DEFAULT_SEED_USERS.find(
+            (u) =>
+              u.email.toLowerCase() === resolvedEmail.toLowerCase() ||
+              u.email.toLowerCase() === identifier.toLowerCase()
+          );
+
+        if (seedFallback && seedFallback.passwordHash) {
+          const match = verifyPassword(payload.password, seedFallback.passwordHash);
+          if (match) {
+            user = seedFallback;
+          } else {
             return { success: false, message: GENERIC_FAILURE };
           }
+        } else if (code === 'auth/invalid-api-key' || firebaseConfig.apiKey.includes('MockKey')) {
+          return {
+            success: false,
+            message:
+              'Firebase configuration is missing in this deployment. Add your VITE_FIREBASE_* environment variables in Vercel and redeploy.',
+          };
+        } else if (code === 'auth/invalid-email' && !identifier.includes('@')) {
+          return {
+            success: false,
+            message:
+              'Please sign in with your registered email address (phone/Omang lookup requires a local profile on this device).',
+          };
         } else {
           return { success: false, message: GENERIC_FAILURE };
         }
