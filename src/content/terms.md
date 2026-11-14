@@ -94,6 +94,6 @@ These Terms are governed by the laws of the Republic of Botswana, and the courts
 ## 14. Contact
 
 Citizen Entrepreneurial Development Agency (CEDA)
-[CEDA_PHYSICAL_ADDRESS]
-Email: [CEDA_EMAIL]
-Phone: [CEDA_PHONE]
+CEDA House, Prime Plaza, Matante Road and Khama Crescent Extension, CBD, Gaborone, Botswana · Private Bag 00504, Gaborone
+Email: enquiries@ceda.co.bw
+Phone: +267 317 0895 (fax +267 317 0896)

@@ -377,6 +377,8 @@ export const OtpVerificationPage: React.FC = () => {
           <img
             src="/assets/ceda-logo.png"
             alt="CEDA Logo"
+            width={160}
+            height={98}
             className="h-11 w-auto object-contain"
           />
           <div className="text-left border-l-2 border-[#8d706b]/40 pl-3">

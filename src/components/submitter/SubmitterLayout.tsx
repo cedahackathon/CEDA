@@ -216,6 +216,8 @@ export const SubmitterLayout: React.FC<SubmitterLayoutProps> = ({
             <img
               src="/assets/ceda-logo.png"
               alt="CEDA"
+              width={160}
+              height={98}
               className="w-7 h-7 object-contain rounded bg-white p-0.5 border border-[#e2bfb8]/60 shrink-0"
             />
             {!isCollapsed && (
@@ -391,6 +393,8 @@ export const SubmitterLayout: React.FC<SubmitterLayoutProps> = ({
                 <img
                   src="/assets/ceda-logo.png"
                   alt="CEDA"
+                  width={160}
+                  height={98}
                   className="w-7 h-7 object-contain rounded bg-white p-0.5 border border-[#e2bfb8]/60"
                 />
                 <div className="flex flex-col leading-tight">
@@ -513,6 +517,8 @@ export const SubmitterLayout: React.FC<SubmitterLayoutProps> = ({
               <img
                 src="/assets/ceda-logo.png"
                 alt="CEDA"
+                width={160}
+                height={98}
                 className="h-6 sm:h-7 w-auto object-contain shrink-0"
               />
               <span className="font-headline text-sm font-bold text-[#1c1c19] truncate">
