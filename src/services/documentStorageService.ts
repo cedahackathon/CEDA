@@ -398,35 +398,3 @@ export async function getDocumentPublicUrlFromFirestore(
     );
   }
 }
-
-/**
- * Resolves the downloadable file URL for a submission or query response attachment.
- * Centralised here so public URLs can be swapped to signed URLs later without UI changes.
- */
-export function getDocumentDownloadUrl(entry: {
-  publicUrl?: string | null;
-  storagePath?: string | null;
-}): string | null {
-  const directUrl = typeof entry?.publicUrl === 'string' ? entry.publicUrl.trim() : '';
-  if (directUrl) {
-    return directUrl;
-  }
-
-  const storagePath = typeof entry?.storagePath === 'string' ? entry.storagePath.trim() : '';
-  if (storagePath) {
-    try {
-      const supabase = getSupabaseClient();
-      const { data } = supabase.storage
-        .from(SUPABASE_DOCUMENTS_BUCKET)
-        .getPublicUrl(storagePath);
-      if (data?.publicUrl?.trim()) {
-        return data.publicUrl.trim();
-      }
-    } catch {
-      return null;
-    }
-  }
-
-  return null;
-}
-

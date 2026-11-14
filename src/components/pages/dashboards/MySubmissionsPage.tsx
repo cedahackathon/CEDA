@@ -517,7 +517,7 @@ export const MySubmissionsPage: React.FC = () => {
               )}
               <button
                 type="button"
-                onClick={() => setCurrentRoute(`/submissions/${item.id}?tab=feedback`)}
+                onClick={() => setCurrentRoute('/submit/applicant')}
                 className="inline-flex items-center justify-center gap-1.5 h-9 px-4 rounded-xl bg-[#a02010] hover:bg-[#7c0700] text-white text-xs font-semibold transition-colors shadow-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a02010]"
               >
                 <span>Respond</span>
@@ -1309,21 +1309,13 @@ export const MySubmissionsPage: React.FC = () => {
 
                                   {/* Idea Title + Muted Line */}
                                   <td className="py-4 px-3 align-middle">
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        setCurrentRoute(
-                                          isDraft
-                                            ? getWizardPathForStep(item.currentStep)
-                                            : `/submissions/${item.id}`
-                                        )
-                                      }
-                                      className={`text-left text-sm font-bold leading-snug hover:text-[#a02010] transition-colors focus-visible:outline-2 focus-visible:outline-[#a02010] rounded ${
+                                    <p
+                                      className={`text-sm font-bold leading-snug ${
                                         isExpanded ? 'text-[#8f1c0e]' : 'text-[#1c1c19]'
                                       }`}
                                     >
                                       {item.title}
-                                    </button>
+                                    </p>
                                     <p className="text-xs text-[#6b4f47] mt-0.5 flex flex-wrap items-center gap-x-1.5">
                                       <span className="tabular-nums">{item.reference}</span>
                                       <span aria-hidden="true">•</span>
@@ -1354,9 +1346,9 @@ export const MySubmissionsPage: React.FC = () => {
                                     )}
                                   </td>
 
-                                  {/* Action Cell (Continue for Drafts, Track for Submitted) */}
+                                  {/* Action Cell (Continue for Drafts) */}
                                   <td className="py-4 pl-2 pr-5 align-middle text-right">
-                                    {isDraft ? (
+                                    {isDraft && (
                                       <button
                                         type="button"
                                         onClick={() =>
@@ -1365,20 +1357,6 @@ export const MySubmissionsPage: React.FC = () => {
                                         className="inline-flex items-center justify-center gap-1 h-8 px-3 rounded-lg bg-[#a02010] hover:bg-[#7c0700] text-white text-xs font-semibold transition-colors whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a02010]"
                                       >
                                         <span>Continue</span>
-                                        <span
-                                          aria-hidden="true"
-                                          className="material-symbols-outlined text-[14px]"
-                                        >
-                                          arrow_forward
-                                        </span>
-                                      </button>
-                                    ) : (
-                                      <button
-                                        type="button"
-                                        onClick={() => setCurrentRoute(`/submissions/${item.id}`)}
-                                        className="inline-flex items-center justify-center gap-1 h-8 px-3 rounded-lg border border-[#e2bfb8] bg-[#fbf8f4] hover:bg-[#f4eee9] text-[#38231d] text-xs font-semibold transition-colors whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a02010]"
-                                      >
-                                        <span>Track</span>
                                         <span
                                           aria-hidden="true"
                                           className="material-symbols-outlined text-[14px]"
@@ -1415,19 +1393,9 @@ export const MySubmissionsPage: React.FC = () => {
                           <article key={item.id} className="p-4 space-y-3">
                             <div className="flex items-start justify-between gap-2.5">
                               <div className="min-w-0">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setCurrentRoute(
-                                      isDraft
-                                        ? getWizardPathForStep(item.currentStep)
-                                        : `/submissions/${item.id}`
-                                    )
-                                  }
-                                  className="text-left text-sm font-bold text-[#1c1c19] hover:text-[#a02010] leading-snug transition-colors"
-                                >
+                                <h3 className="text-sm font-bold text-[#1c1c19] leading-snug">
                                   {item.title}
-                                </button>
+                                </h3>
                                 <p className="text-xs text-[#6b4f47] mt-1">
                                   {item.reference} • {item.sector} • {formatLocationLine(item)}
                                 </p>
@@ -1469,36 +1437,21 @@ export const MySubmissionsPage: React.FC = () => {
                                   </span>
                                 </button>
                               ) : (
-                                <>
-                                  <button
-                                    type="button"
-                                    aria-expanded={isExpanded}
-                                    aria-controls={panelId}
-                                    onClick={() => toggleExpandRow(item.id)}
-                                    className="inline-flex items-center justify-center gap-1.5 h-10 px-3.5 rounded-xl border border-[#e2bfb8] bg-[#fbf8f4] text-xs font-semibold text-[#38231d]"
+                                <button
+                                  type="button"
+                                  aria-expanded={isExpanded}
+                                  aria-controls={panelId}
+                                  onClick={() => toggleExpandRow(item.id)}
+                                  className="inline-flex items-center justify-center gap-1.5 h-10 px-3.5 rounded-xl border border-[#e2bfb8] bg-[#fbf8f4] text-xs font-semibold text-[#38231d]"
+                                >
+                                  <span>{isExpanded ? 'Hide details' : 'View details'}</span>
+                                  <span
+                                    aria-hidden="true"
+                                    className="material-symbols-outlined text-[17px]"
                                   >
-                                    <span>{isExpanded ? 'Hide details' : 'View details'}</span>
-                                    <span
-                                      aria-hidden="true"
-                                      className="material-symbols-outlined text-[17px]"
-                                    >
-                                      {isExpanded ? 'expand_less' : 'expand_more'}
-                                    </span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setCurrentRoute(`/submissions/${item.id}`)}
-                                    className="inline-flex items-center justify-center gap-1.5 h-10 px-3.5 rounded-xl bg-[#a02010] hover:bg-[#7c0700] text-white text-xs font-semibold transition-colors"
-                                  >
-                                    <span>Track</span>
-                                    <span
-                                      aria-hidden="true"
-                                      className="material-symbols-outlined text-[15px]"
-                                    >
-                                      arrow_forward
-                                    </span>
-                                  </button>
-                                </>
+                                    {isExpanded ? 'expand_less' : 'expand_more'}
+                                  </span>
+                                </button>
                               )}
                             </div>
 
@@ -1545,19 +1498,9 @@ export const MySubmissionsPage: React.FC = () => {
                             </div>
 
                             <div>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setCurrentRoute(
-                                    isDraft
-                                      ? getWizardPathForStep(item.currentStep)
-                                      : `/submissions/${item.id}`
-                                  )
-                                }
-                                className="text-left text-sm font-bold text-[#1c1c19] hover:text-[#a02010] leading-snug transition-colors"
-                              >
+                              <h3 className="text-sm font-bold text-[#1c1c19] leading-snug">
                                 {item.title}
-                              </button>
+                              </h3>
                               <p className="text-xs text-[#6b4f47] mt-1 leading-relaxed">
                                 {item.reference} • {item.sector} • {formatLocationLine(item)}
                               </p>
@@ -1588,7 +1531,7 @@ export const MySubmissionsPage: React.FC = () => {
                               </div>
                             )}
 
-                            <div className="flex items-center justify-end gap-2">
+                            <div className="flex items-center justify-end">
                               {isDraft ? (
                                 <button
                                   type="button"
@@ -1606,36 +1549,21 @@ export const MySubmissionsPage: React.FC = () => {
                                   </span>
                                 </button>
                               ) : (
-                                <>
-                                  <button
-                                    type="button"
-                                    aria-expanded={isExpanded}
-                                    aria-controls={panelId}
-                                    onClick={() => toggleExpandRow(item.id)}
-                                    className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl border border-[#e2bfb8] bg-[#fbf8f4] hover:bg-[#f4eee9] text-xs font-semibold text-[#38231d] transition-colors"
+                                <button
+                                  type="button"
+                                  aria-expanded={isExpanded}
+                                  aria-controls={panelId}
+                                  onClick={() => toggleExpandRow(item.id)}
+                                  className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl border border-[#e2bfb8] bg-[#fbf8f4] hover:bg-[#f4eee9] text-xs font-semibold text-[#38231d] transition-colors"
+                                >
+                                  <span>{isExpanded ? 'Hide details' : 'View details'}</span>
+                                  <span
+                                    aria-hidden="true"
+                                    className="material-symbols-outlined text-[16px]"
                                   >
-                                    <span>{isExpanded ? 'Hide details' : 'View details'}</span>
-                                    <span
-                                      aria-hidden="true"
-                                      className="material-symbols-outlined text-[16px]"
-                                    >
-                                      {isExpanded ? 'expand_less' : 'expand_more'}
-                                    </span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setCurrentRoute(`/submissions/${item.id}`)}
-                                    className="inline-flex items-center justify-center gap-1 h-9 px-3.5 rounded-xl bg-[#a02010] hover:bg-[#7c0700] text-white text-xs font-semibold transition-colors"
-                                  >
-                                    <span>Track</span>
-                                    <span
-                                      aria-hidden="true"
-                                      className="material-symbols-outlined text-[15px]"
-                                    >
-                                      arrow_forward
-                                    </span>
-                                  </button>
-                                </>
+                                    {isExpanded ? 'expand_less' : 'expand_more'}
+                                  </span>
+                                </button>
                               )}
                             </div>
                           </div>

@@ -1,0 +1,10 @@
+{
+  "rules": {
+    "agentPresence": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    }
+  }
+}

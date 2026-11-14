@@ -342,20 +342,6 @@ service cloud.firestore {
         && (!('note' in docData) || (docData.note is string && docData.note.size() <= 200));
     }
 
-    function isIdeaOwner(dbName, ideaId) {
-      return isSignedIn()
-        && exists(/databases/$(dbName)/documents/ideas/$(ideaId))
-        && get(/databases/$(dbName)/documents/ideas/$(ideaId)).data.submitterId == request.auth.uid;
-    }
-
-    function isReviewStaff(dbName) {
-      return isSignedIn() && (
-        hasRole(dbName, 'EVALUATOR')
-        || hasRole(dbName, 'ADJUDICATOR')
-        || isAdmin(dbName)
-      );
-    }
-
     // 7. Submitter Ideas collection
     match /ideas/{ideaId} {
       allow read: if isSignedIn() && (
@@ -429,35 +415,6 @@ service cloud.firestore {
             (isParentIdeaOwner(database, ideaId) && isParentIdeaEditable(database, ideaId))
             || isAdmin(database)
           );
-      }
-
-      match /events/{eventId} {
-        allow read: if isSignedIn() && (
-          (isIdeaOwner(database, ideaId) && resource.data.applicantVisible == true)
-          || isReviewStaff(database)
-          || hasRole(database, 'STAKEHOLDER')
-        );
-        allow create: if isReviewStaff(database);
-        allow update, delete: if isAdmin(database);
-      }
-
-      match /queries/{queryId} {
-        allow read: if isSignedIn() && (
-          isIdeaOwner(database, ideaId)
-          || isReviewStaff(database)
-        );
-        allow create, delete: if isReviewStaff(database);
-        allow update: if isReviewStaff(database) || (
-          isIdeaOwner(database, ideaId)
-          && resource.data.status == 'open'
-          && request.resource.data.diff(resource.data).affectedKeys()
-               .hasOnly(['status', 'respondedAt', 'response'])
-          && request.resource.data.status == 'responded'
-          && request.resource.data.response is map
-          && request.resource.data.response.message is string
-          && request.resource.data.response.message.size() >= 10
-          && request.resource.data.response.message.size() <= 2000
-        );
       }
     }
 
@@ -560,6 +517,61 @@ service cloud.firestore {
         resource.data.uploaderId == request.auth.uid
         || isAdmin(database)
       );
+    }
+
+    // 11. Chat System Settings
+    match /chatSystemSettings/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin(database);
+    }
+
+    // 12. Chat Holidays
+    match /chatHolidays/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin(database);
+    }
+
+    // 13. Chat Sessions & Messages
+    match /chatSessions/{sessionId} {
+      allow read: if isSignedIn() && (
+        resource.data.submitterId == request.auth.uid
+        || resource.data.agentId == request.auth.uid
+        || isAdmin(database)
+      );
+      allow create: if isSignedIn() && request.resource.data.submitterId == request.auth.uid;
+      allow update: if isSignedIn() && (
+        resource.data.submitterId == request.auth.uid
+        || resource.data.agentId == request.auth.uid
+        || isAdmin(database)
+        || hasRole(database, 'EVALUATOR')
+      );
+      allow delete: if isAdmin(database);
+
+      match /messages/{messageId} {
+        allow read: if isSignedIn() && (
+          get(/databases/$(database)/documents/chatSessions/$(sessionId)).data.submitterId == request.auth.uid
+          || get(/databases/$(database)/documents/chatSessions/$(sessionId)).data.agentId == request.auth.uid
+          || isAdmin(database)
+        ) && (
+          !resource.data.get('isInternal', false)
+          || get(/databases/$(database)/documents/chatSessions/$(sessionId)).data.agentId == request.auth.uid
+          || isAdmin(database)
+        );
+
+        allow create: if isSignedIn() && (
+          get(/databases/$(database)/documents/chatSessions/$(sessionId)).data.submitterId == request.auth.uid
+          || get(/databases/$(database)/documents/chatSessions/$(sessionId)).data.agentId == request.auth.uid
+          || isAdmin(database)
+        );
+
+        allow update, delete: if isAdmin(database);
+      }
+    }
+
+    // 14. Chat Settings Audit Logs
+    match /chatSettingsAudit/{auditId} {
+      allow read: if isAdmin(database);
+      allow write: if false;
     }
   }
 }

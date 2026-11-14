@@ -29,8 +29,6 @@ export const Header: React.FC = () => {
               <img
                 src="/assets/ceda-logo.png"
                 alt="CEDA - Citizen Entrepreneurial Development Agency"
-                width={160}
-                height={98}
                 className="h-10 w-auto object-contain"
               />
               <div className="h-6 w-px bg-[#8d706b]/40"></div>
@@ -75,7 +73,7 @@ export const Header: React.FC = () => {
                   : 'text-[#5a413c] hover:text-[#1c1c19] hover:bg-[#f1ede8]'
               }`}
             >
-              {language === 'Setswana' ? 'Dipotso' : 'FAQs'}
+              FAQs
             </button>
             <button
               onClick={() => setCurrentRoute('/help-center')}

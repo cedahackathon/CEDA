@@ -13,10 +13,10 @@ export type AdminRoutePath =
   | '/admin/users'
   | '/admin/evaluator-assignment'
   | '/admin/audit-trail'
-  | '/admin/chat-console'
   | '/admin/chat-analytics'
   | '/admin/reports'
-  | '/admin/system';
+  | '/admin/system'
+  | '/admin/settings/chat';
 
 export interface AdminNavItem {
   id: string;
@@ -140,20 +140,20 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
     description: 'Inspect tamper-evident security logs, sign-ins, and statutory changes.',
   },
   {
-    id: 'chat-console',
-    label: 'Chat console',
-    labelSetswana: 'Puisano ya Thuso',
-    path: '/admin/chat-console',
-    icon: 'chat',
-    description: 'Monitor live citizen support desks and manage online agent coverage.',
-  },
-  {
     id: 'chat-analytics',
     label: 'Chat analytics',
     labelSetswana: 'Tshekatsheko ya Puisano',
     path: '/admin/chat-analytics',
     icon: 'show_chart',
     description: 'Track response times, desk resolution rates, and Setswana/English volume.',
+  },
+  {
+    id: 'chat-settings',
+    label: 'Chat settings',
+    labelSetswana: 'Di-setting tsa Puisano',
+    path: '/admin/settings/chat',
+    icon: 'headset_mic',
+    description: 'Configure chat operational hours, holidays, automated messages, and agent capacity.',
   },
   {
     id: 'reports',

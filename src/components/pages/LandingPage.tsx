@@ -6,104 +6,12 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 
-interface FundedStory {
-  id: string;
-  firstName: string;
-  district: string;
-  sector: string;
-  capitalAwarded: string;
-  imageSrc: string;
-  imageAlt: string;
-  summary: string;
-}
-
-const FUNDED_STORIES: FundedStory[] = [
-  {
-    id: 'maun-agritech',
-    firstName: 'Kabo',
-    district: 'Ngamiland (Maun)',
-    sector: 'Agri-Tech',
-    capitalAwarded: 'P 320,000',
-    imageSrc: '/images/story-maun.jpg',
-    imageAlt: 'Founder inspecting solar panels beside an agricultural cold storage unit in Maun',
-    summary: 'Off-grid solar cold rooms cutting horticulture spoilage for smallholder cooperatives.',
-  },
-  {
-    id: 'francistown-manufacturing',
-    firstName: 'Lesedi',
-    district: 'North-East (Francistown)',
-    sector: 'Green Manufacturing',
-    capitalAwarded: 'P 450,000',
-    imageSrc: '/images/story-francistown.jpg',
-    imageAlt: 'Founder examining eco-composite building material samples in a Francistown workshop',
-    summary: 'Recycled polymer and quarry-dust paving blocks manufactured for regional councils.',
-  },
-  {
-    id: 'palapye-cleantech',
-    firstName: 'Tshepo',
-    district: 'Central (Palapye)',
-    sector: 'Water & Clean Tech',
-    capitalAwarded: 'P 280,000',
-    imageSrc: '/images/story-palapye.jpg',
-    imageAlt: 'Engineer testing water quality monitoring electronics in a Palapye workshop',
-    summary: 'Low-power borehole salinity sensors built for communal grazing syndicates.',
-  },
-];
-
-const TIMELINE_STAGES = [
-  {
-    step: '01',
-    title: 'Submit',
-    timing: '∼ 20 Mins',
-    description:
-      'Register your Omang and submit your concept, market thesis, and pitch deck in under 20 minutes.',
-  },
-  {
-    step: '02',
-    title: 'Review',
-    timing: '7-10 Days',
-    description:
-      'Independent sector specialists assess viability, commercial scalability, and local job impact.',
-  },
-  {
-    step: '03',
-    title: 'Feedback',
-    timing: 'Interactive',
-    description:
-      'Receive detailed, actionable written critiques and guidance directly from committee members.',
-  },
-  {
-    step: '04',
-    title: 'Approval',
-    timing: 'Adjudication',
-    description:
-      'Formal adjudication by CEDA executive boards with clear funding recommendation.',
-  },
-  {
-    step: '05',
-    title: 'Award',
-    timing: 'Disbursement',
-    description:
-      'Grant disbursement in Pula, tailored incubation, and entry into CEDA mentorship networks.',
-  },
-];
-
-const TRACKER_STEPS = ['Submit', 'Review', 'Feedback', 'Approval', 'Award'];
-
 export const LandingPage: React.FC = () => {
-  const { currentUser, setCurrentRoute } = useAuth();
+  const { currentUser, setCurrentRoute, language } = useAuth();
 
   // Reference lookup state
   const [trackingInput, setTrackingInput] = useState('');
   const [trackingResult, setTrackingResult] = useState<string | null>(null);
-  const [trackedStageIndex, setTrackedStageIndex] = useState<number>(1);
-
-  // Image fallback state (CSS/SVG fallback if /images/*.jpg is missing)
-  const [heroImageFailed, setHeroImageFailed] = useState(false);
-  const [failedStoryIds, setFailedStoryIds] = useState<Record<string, boolean>>({});
-
-  // Hide mobile sticky CTA bar when footer enters viewport
-  const [isNearFooter, setIsNearFooter] = useState(false);
 
   // Countdown timer for next intake cycle deadline
   const [countdown, setCountdown] = useState({
@@ -131,855 +39,753 @@ export const LandingPage: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    if (typeof window === 'undefined' || typeof IntersectionObserver === 'undefined') {
-      return;
-    }
-    const footerEl = document.querySelector('footer');
-    if (!footerEl) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const isVisible = entries.some((entry) => entry.isIntersecting);
-        setIsNearFooter(isVisible);
-      },
-      { rootMargin: '80px 0px 0px 0px', threshold: 0.01 }
-    );
-
-    observer.observe(footerEl);
-    return () => observer.disconnect();
-  }, []);
-
   const handleTrack = (e: React.FormEvent) => {
     e.preventDefault();
     const clean = trackingInput.trim().toUpperCase();
     if (!clean) {
-      setTrackingResult(
-        'Please enter a submission tracking reference code (e.g. CEDA-INN-2026-0842).'
-      );
+      setTrackingResult('Please enter a submission tracking reference code (e.g. CEDA-INN-2026-0842).');
       return;
     }
     if (clean.includes('0842') || clean.includes('CEDA-INN')) {
-      setTrackedStageIndex(1);
       setTrackingResult(
         'Reference Found: "Solar-Powered Smart Grain Silos" (Stage 2: Under Review). Sign in with your registered account to view your full blinded evaluation dossier.'
       );
     } else {
-      setTrackedStageIndex(0);
       setTrackingResult(
         `Reference "${clean}" entered. Sign in to your verified CEDA account to access submission records.`
       );
     }
   };
 
-  const handleDashboardRedirect = () => {
-    if (!currentUser) {
-      setCurrentRoute('/register');
-      return;
-    }
-    if (currentUser.role === 'SUBMITTER') setCurrentRoute('/dashboard');
-    else if (currentUser.role === 'EVALUATOR') setCurrentRoute('/dashboard/evaluator');
-    else if (currentUser.role === 'ADJUDICATOR') setCurrentRoute('/dashboard/adjudicator');
-    else if (currentUser.role === 'ADMIN') setCurrentRoute('/admin');
-    else setCurrentRoute('/dashboard/stakeholder');
-  };
-
-  const activeMarkerPercent = Math.round(((trackedStageIndex + 0.5) / TRACKER_STEPS.length) * 100);
-
   return (
-    <div className="landing-page w-full flex flex-col bg-[#fdf9f4] text-[#1c1c19] overflow-x-clip">
-      {/* SECTION 1: HERO (Full-bleed documentary background with warm contrast scrim) */}
-      <section className="relative w-full overflow-hidden bg-[#241814] pt-14 pb-24 sm:pt-20 sm:pb-28 lg:pt-24 lg:pb-32 border-b border-[#e2bfb8]/40">
-        {/* Full-bleed Hero Background Image + Pattern Fallback */}
-        <div className="absolute inset-0 z-0">
-          {!heroImageFailed ? (
-            <img
-              src="/images/hero.jpg"
-              alt="Batswana entrepreneurs reviewing blueprints and solar hardware prototypes in a sunlit workshop"
-              width={1376}
-              height={768}
-              fetchPriority="high"
-              referrerPolicy="no-referrer"
-              onError={() => setHeroImageFailed(true)}
-              className="w-full h-full object-cover object-center lg:object-[72%_center]"
-            />
-          ) : (
-            <div
-              aria-hidden="true"
-              className="w-full h-full bg-[#3a120b] landing-weave-pattern"
-            />
-          )}
-
-          {/* Directional warm dark scrim: high contrast for text on the left/mobile, preserves photo warmth on the right */}
-          <div
-            aria-hidden="true"
-            className="absolute inset-0 bg-gradient-to-b from-[#1a110f]/82 via-[#1a110f]/75 to-[#1a110f]/85 lg:bg-gradient-to-r lg:from-[#1a110f]/92 lg:via-[#24130f]/76 lg:to-[#24130f]/35"
-          />
-          <div
-            aria-hidden="true"
-            className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-[#1a110f]/70 to-transparent"
-          />
+    <div className="w-full flex flex-col">
+      {/* SECTION 1: HERO SECTION */}
+      <section
+        className="relative w-full overflow-hidden bg-[#31302d] py-14 lg:py-20"
+        style={{
+          background:
+            'radial-gradient(circle at 85% 20%, rgba(148, 49, 0, 0.35) 0%, rgba(49, 48, 45, 0.95) 45%, rgb(49, 48, 45) 100%), linear-gradient(rgba(160, 32, 16, 0.2) 0%, rgba(49, 48, 45, 0) 60%)',
+        }}
+      >
+        <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none opacity-20">
+          <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full blur-3xl bg-[#a02010]"></div>
+          <div className="absolute top-1/4 right-10 w-[500px] h-[500px] rounded-full blur-3xl bg-[#943100]"></div>
         </div>
 
-        <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-8 grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-end">
-          {/* Left Column: Focal Headline + One Supporting Sentence + Single Primary CTA */}
-          <div className="lg:col-span-7 flex flex-col items-start gap-6">
-            <p className="text-sm font-semibold text-[#f8c808] tracking-normal">
-              Citizen Entrepreneurial Development Agency · Botswana
-            </p>
+        <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-8 grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
+          {/* Left Column (7 Cols) */}
+          <div className="lg:col-span-7 flex flex-col items-start gap-5">
+            {/* Eyebrow Badge */}
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-md border border-white/20 shadow-xs">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#a02010] ring-2 ring-white/30"></span>
+              <span className="text-xs text-[#f4f0eb] font-semibold tracking-wide">
+                Citizen Entrepreneurial Development Agency
+              </span>
+            </div>
 
-            <h1 className="landing-display text-[clamp(2.75rem,5vw,4.5rem)] font-bold text-white leading-[1.06] tracking-tight [text-wrap:balance]">
+            {/* H1 Headline */}
+            <h1 className="font-headline text-3xl sm:text-4xl lg:text-5xl text-white font-bold tracking-tight leading-tight">
               Your idea. Evaluated fairly. Rewarded.
             </h1>
 
-            <p className="text-base sm:text-lg text-[#fdf9f4]/92 leading-relaxed max-w-[54ch]">
+            {/* Subtext */}
+            <p className="text-base sm:text-lg text-[#f4f0eb]/90 max-w-2xl leading-relaxed">
               Submit your innovative idea to CEDA, track every stage in real time and get feedback
               from expert evaluators.
             </p>
 
-            <div className="flex flex-wrap items-center gap-6 pt-1">
-              {currentUser ? (
-                <button
-                  type="button"
-                  onClick={handleDashboardRedirect}
-                  className="min-h-[48px] px-7 py-3 rounded-lg bg-[#a02010] hover:bg-[#7c0700] active:bg-[#5e0500] text-white text-base font-semibold shadow-md transition-colors cursor-pointer"
-                >
-                  Open {currentUser.role.toLowerCase()} dashboard
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setCurrentRoute('/register')}
-                  className="min-h-[48px] px-7 py-3 rounded-lg bg-[#a02010] hover:bg-[#7c0700] active:bg-[#5e0500] text-white text-base font-semibold shadow-md transition-colors cursor-pointer"
-                >
-                  Submit an idea
-                </button>
-              )}
+            {/* CTA Buttons */}
+            <div className="flex flex-wrap items-center gap-4 pt-1 w-full sm:w-auto">
+              <button
+                onClick={() => setCurrentRoute('/register')}
+                className="inline-flex items-center justify-center gap-2 min-h-[46px] px-6 rounded-lg bg-[#a02010] hover:bg-[#861a0d] active:bg-[#6e1409] text-white text-sm font-bold shadow-lg transition-all group cursor-pointer"
+              >
+                <span>Submit an idea</span>
+                <span className="material-symbols-outlined text-[18px] group-hover:translate-x-1 transition-transform">
+                  arrow_forward
+                </span>
+              </button>
 
               <a
                 href="#how-it-works"
-                className="min-h-[44px] inline-flex items-center text-base font-semibold text-[#f8c808] hover:text-white transition-colors"
+                className="inline-flex items-center justify-center gap-2 min-h-[46px] px-5 rounded-lg bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/20 text-white text-sm font-semibold transition-all shadow-sm"
               >
-                How it works
+                <span className="material-symbols-outlined text-[20px] text-amber-400">play_circle</span>
+                <span>How it works</span>
               </a>
             </div>
 
-            {currentUser && (
-              <p className="text-sm text-[#fdf9f4]/90 pt-1">
-                Signed in as <strong className="text-white">{currentUser.firstName} {currentUser.surname}</strong> · Role: {currentUser.role}
-              </p>
-            )}
-          </div>
-
-          {/* Right Column: Quiet caption anchored over open background image */}
-          <div className="lg:col-span-5 flex flex-col lg:items-end lg:text-right justify-end gap-1.5 text-[#fdf9f4] pt-2 lg:pb-1">
-            <p className="text-sm sm:text-base font-semibold text-white leading-snug">
-              Double-blind merit scoring across all districts
-            </p>
-            <p className="text-sm text-[#fdf9f4]/85">
-              14-Day SLA Guarantee · Up to BWP 500,000 seed-stage support
-            </p>
-            <span className="text-xs font-semibold text-[#f8c808] tracking-wide mt-0.5">
-              #KaeKapaKae
-            </span>
-          </div>
-        </div>
-      </section>
-
-      {/* SIGNATURE ELEMENT: Overlapping Application-Tracker Card */}
-      <section
-        aria-labelledby="tracker-heading"
-        className="relative z-20 -mt-12 sm:-mt-14 w-full max-w-[1140px] mx-auto px-4 md:px-8"
-      >
-        <div className="bg-white rounded-2xl border border-[#e2bfb8] shadow-[0_20px_50px_rgba(62,42,37,0.10)] overflow-hidden">
-          <div className="h-1.5 w-full landing-sunrise-line" aria-hidden="true" />
-
-          <div className="p-6 sm:p-8 flex flex-col gap-6">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-              <div>
-                <h2
-                  id="tracker-heading"
-                  className="landing-display text-xl sm:text-2xl font-bold text-[#1c1c19]"
-                >
-                  Track an existing application
-                </h2>
-                <p className="text-base text-[#4a3530] mt-1 max-w-[60ch]">
-                  Check where your submission sits in CEDA’s five-stage review pipeline.
-                </p>
+            {/* Streamlined Cycle Status Strip */}
+            <div className="w-full max-w-lg rounded-xl bg-white/10 backdrop-blur-xl border border-white/20 p-3.5 shadow-xl flex items-center justify-between gap-3 text-xs mt-1">
+              <div className="flex items-center gap-2.5">
+                <span className="material-symbols-outlined text-amber-400 text-lg">timer</span>
+                <div>
+                  <span className="text-amber-300 font-bold uppercase tracking-wider block text-[11px]">
+                    Cycle 2026/2027 Open
+                  </span>
+                  <span className="text-white/80 text-[11px]">
+                    Closes 28 Feb 2027 • 23:59 CAT
+                  </span>
+                </div>
               </div>
-
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-[#4a3530]">
-                <span>100% Citizen Owned</span>
-                <span aria-hidden="true">·</span>
-                <span className="font-semibold text-[#7c0700]">BDPA Compliant</span>
+              <div className="flex items-center gap-1 font-mono text-xs font-bold text-white bg-black/30 px-2.5 py-1 rounded-lg border border-white/10">
+                <span>{countdown.days}d</span>
+                <span className="text-amber-400">:</span>
+                <span>{countdown.hours.toString().padStart(2, '0')}h</span>
+                <span className="text-amber-400">:</span>
+                <span>{countdown.minutes.toString().padStart(2, '0')}m</span>
+                <span className="text-amber-400">:</span>
+                <span className="text-amber-400">{countdown.seconds.toString().padStart(2, '0')}s</span>
               </div>
             </div>
 
-            {/* Single orchestrated progress animation on initial page load */}
-            <div className="pt-1 pb-2" aria-label="Five-stage CEDA application progress rail">
-              <div className="relative">
-                {/* Base Rail */}
-                <div className="h-2 w-full rounded-full bg-[#efe7de] overflow-hidden">
-                  <div
-                    className="h-full rounded-full landing-sunrise-line landing-tracker-fill"
-                    style={{ width: `${activeMarkerPercent}%` }}
-                  />
-                </div>
-
-                {/* Animated Progress Marker */}
-                <div
-                  className="hidden sm:flex absolute top-1/2 -translate-y-1/2 -translate-x-1/2 items-center justify-center w-6 h-6 rounded-full bg-[#7c0700] ring-4 ring-[#fdf9f4] border-2 border-[#f8a018] landing-tracker-marker"
-                  style={{ left: `${activeMarkerPercent}%` }}
-                  aria-hidden="true"
-                >
-                  <span className="w-2 h-2 rounded-full bg-[#f8c808]" />
-                </div>
-              </div>
-
-              <ol className="grid grid-cols-5 gap-1 sm:gap-2 mt-3 text-[11px] sm:text-sm">
-                {TRACKER_STEPS.map((stageName, idx) => {
-                  const isCompleted = idx < trackedStageIndex;
-                  const isCurrent = idx === trackedStageIndex;
-                  return (
-                    <li
-                      key={stageName}
-                      className={`flex flex-col sm:flex-row sm:items-center gap-1 ${
-                        isCurrent
-                          ? 'text-[#7c0700] font-bold'
-                          : isCompleted
-                          ? 'text-[#1c1c19] font-semibold'
-                          : 'text-[#6c554f]'
-                      }`}
-                    >
-                      <span className="tabular-nums text-xs opacity-80">0{idx + 1}</span>
-                      <span className="truncate">{stageName}</span>
-                    </li>
-                  );
-                })}
-              </ol>
+            {/* Tagline */}
+            <div className="flex items-center gap-3 text-xs text-white/80">
+              <span className="font-semibold uppercase tracking-wider">Finance. Develop. Sustain.</span>
+              <span className="text-amber-400">•</span>
+              <span className="text-amber-300 font-bold tracking-wider">#KaeKapaKae</span>
             </div>
+          </div>
 
-            {/* Working Reference Lookup Form */}
-            <form
-              onSubmit={handleTrack}
-              className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3"
-            >
-              <label htmlFor="landing-tracker-input" className="sr-only">
-                Application reference code
-              </label>
-              <input
-                id="landing-tracker-input"
-                type="text"
-                value={trackingInput}
-                onChange={(e) => {
-                  setTrackingInput(e.target.value);
-                  setTrackingResult(null);
-                }}
-                placeholder="Enter reference code, e.g. CEDA-INN-2026-0842"
-                className="flex-1 min-h-[46px] px-4 py-2.5 bg-[#fdf9f4] border border-[#c9b9b0] rounded-lg text-base font-mono text-[#1c1c19] placeholder:text-[#6c554f] focus:outline-none focus:ring-2 focus:ring-[#f8a018]"
-              />
-              <button
-                type="submit"
-                className="min-h-[46px] px-6 py-2.5 bg-[#1c1c19] hover:bg-[#3a3532] text-white text-base font-semibold rounded-lg transition-colors cursor-pointer whitespace-nowrap"
-              >
-                Track reference
-              </button>
-            </form>
-
-            {trackingResult && (
+          {/* Right Column (5 Cols) - Public Innovation Gateway or Logged-in Quick Link */}
+          <div className="lg:col-span-5 w-full">
+            {currentUser ? (
+              /* Logged-In User Quick Workspace Card */
               <div
-                role="status"
-                aria-live="polite"
-                className="p-4 rounded-xl bg-[#f4ede4] border border-[#d9c7bc] text-sm sm:text-base text-[#1c1c19] flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                className="relative bg-white rounded-2xl shadow-2xl p-6 sm:p-7 flex flex-col gap-4 overflow-hidden border border-[#e2bfb8]"
+                style={{
+                  background: 'linear-gradient(175deg, #ffffff 0%, #fdf9f4 65%, #f6ede3 100%)',
+                }}
               >
-                <p className="max-w-[65ch]">{trackingResult}</p>
-                <button
-                  type="button"
-                  onClick={() => setCurrentRoute('/login')}
-                  className="min-h-[44px] px-4 py-2 rounded-lg bg-white border border-[#c9b9b0] text-[#7c0700] font-semibold text-sm hover:bg-[#fdf9f4] transition-colors shrink-0 cursor-pointer"
-                >
-                  Sign in to view dossier
-                </button>
+                <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-[#a02010] via-[#943100] to-[#77574e]"></div>
+
+                <div className="flex items-center justify-between">
+                  <span className="px-2.5 py-0.5 rounded-full bg-[#ffd3c8] text-[#6d2200] text-xs font-bold uppercase tracking-wider">
+                    Active Session
+                  </span>
+                  <span className="text-xs font-semibold text-[#a02010] bg-red-50 px-2.5 py-1 rounded-full border border-red-200">
+                    Role: {currentUser.role}
+                  </span>
+                </div>
+
+                <div>
+                  <h3 className="font-headline text-lg font-bold text-[#1c1c19]">
+                    Dumela, {currentUser.firstName} {currentUser.surname}
+                  </h3>
+                  <p className="text-xs text-[#5a413c] mt-1.5 leading-relaxed">
+                    {currentUser.role === 'SUBMITTER'
+                      ? 'You are signed in to your submitter portal. Track your active proposals, review committee feedback, and monitor your 14-day turnaround SLA.'
+                      : currentUser.role === 'EVALUATOR'
+                      ? 'You are signed in as an expert evaluator. Review assigned blind dockets and submit technical scoring.'
+                      : currentUser.role === 'ADJUDICATOR'
+                      ? 'You are signed in to the executive board chamber. Review quorum sign-offs and approve grant tranches.'
+                      : currentUser.role === 'ADMIN'
+                      ? 'You are signed in as portal administrator. Monitor SLA alerts and the immutable audit ledger.'
+                      : 'You are signed in as public stakeholder. Monitor national disbursement analytics across all 10 districts.'}
+                  </p>
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    onClick={() => {
+                      if (currentUser.role === 'SUBMITTER') setCurrentRoute('/dashboard');
+                      else if (currentUser.role === 'EVALUATOR') setCurrentRoute('/dashboard/evaluator');
+                      else if (currentUser.role === 'ADJUDICATOR') setCurrentRoute('/dashboard/adjudicator');
+                      else if (currentUser.role === 'ADMIN') setCurrentRoute('/admin');
+                      else setCurrentRoute('/dashboard/stakeholder');
+                    }}
+                    className="w-full py-3 px-4 rounded-xl bg-[#a02010] hover:bg-[#861a0d] text-white text-xs font-bold uppercase tracking-wider shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <span>Open {currentUser.role.toLowerCase()} dashboard</span>
+                    <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
+                  </button>
+                </div>
               </div>
-            )}
-          </div>
-        </div>
-      </section>
+            ) : (
+              /* Public / Default State (No private submitter under-review data) */
+              <div
+                className="relative bg-white rounded-2xl shadow-2xl p-6 sm:p-7 flex flex-col gap-4 overflow-hidden border border-[#e2bfb8]"
+                style={{
+                  background: 'linear-gradient(175deg, #ffffff 0%, #fdf9f4 65%, #f6ede3 100%)',
+                }}
+              >
+                {/* Top Accent Bar */}
+                <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-[#a02010] via-[#943100] to-[#77574e]"></div>
 
-      {/* SLIM CYCLE COUNTDOWN BAR */}
-      <section aria-label="Current intake cycle schedule" className="w-full pt-8 pb-10">
-        <div className="max-w-[1140px] mx-auto px-4 md:px-8">
-          <div className="bg-[#f4ede4] border border-[#e2bfb8]/80 rounded-xl px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm sm:text-base text-[#1c1c19]">
-              <span className="font-bold text-[#7c0700]">Cycle 2026/2027 Open</span>
-              <span aria-hidden="true" className="text-[#8d706b]">·</span>
-              <span className="text-[#4a3530]">Closes 28 Feb 2027 • 23:59 CAT</span>
-              <span aria-hidden="true" className="hidden sm:inline text-[#8d706b]">·</span>
-              <span className="hidden sm:inline text-sm text-[#4a3530]">Finance. Develop. Sustain.</span>
-            </div>
-
-            <div
-              className="flex flex-wrap items-center gap-1.5 sm:gap-2 font-mono text-sm sm:text-base font-bold text-[#1c1c19] tabular-nums"
-              aria-label="Time remaining in current cycle"
-            >
-              <span className="px-2.5 py-1 rounded bg-white border border-[#e2bfb8]">{countdown.days}d</span>
-              <span className="text-[#7c0700]">:</span>
-              <span className="px-2.5 py-1 rounded bg-white border border-[#e2bfb8]">
-                {countdown.hours.toString().padStart(2, '0')}h
-              </span>
-              <span className="text-[#7c0700]">:</span>
-              <span className="px-2.5 py-1 rounded bg-white border border-[#e2bfb8]">
-                {countdown.minutes.toString().padStart(2, '0')}m
-              </span>
-              <span className="text-[#7c0700]">:</span>
-              <span className="px-2.5 py-1 rounded bg-[#7c0700] text-white">
-                {countdown.seconds.toString().padStart(2, '0')}s
-              </span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* SECTION 2: STATS FULL-WIDTH COLOUR BAND (CEDA Maroon + oversized numerals) */}
-      <section className="relative w-full bg-[#7c0700] text-[#fdf9f4] py-14 sm:py-16 landing-weave-pattern">
-        <div className="max-w-[1200px] mx-auto px-4 md:px-8">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-white/20">
-            <div className="py-5 sm:py-2 sm:pr-6 flex flex-col gap-2">
-              <span className="text-sm font-medium text-[#ffdad4]">Ideas submitted</span>
-              <span className="landing-display text-4xl sm:text-5xl font-bold text-white tabular-nums tracking-tight">
-                248
-              </span>
-              <p className="text-sm text-[#fdf9f4]/85 leading-snug">
-                +18 this month across all 10 districts
-              </p>
-            </div>
-
-            <div className="py-5 sm:py-2 sm:px-6 flex flex-col gap-2">
-              <span className="text-sm font-medium text-[#ffdad4]">Under review</span>
-              <span className="landing-display text-4xl sm:text-5xl font-bold text-white tabular-nums tracking-tight">
-                36
-              </span>
-              <p className="text-sm text-[#fdf9f4]/85 leading-snug">
-                Multi-tier expert committees actively scoring
-              </p>
-            </div>
-
-            <div className="py-5 sm:py-2 sm:px-6 flex flex-col gap-2">
-              <span className="text-sm font-medium text-[#ffdad4]">Approved</span>
-              <span className="landing-display text-4xl sm:text-5xl font-bold text-white tabular-nums tracking-tight">
-                41
-              </span>
-              <p className="text-sm text-[#fdf9f4]/85 leading-snug">
-                Advanced to commercialization &amp; mentoring
-              </p>
-            </div>
-
-            <div className="py-5 sm:py-2 sm:pl-6 flex flex-col gap-2">
-              <span className="text-sm font-medium text-[#f8c808]">Awarded capital</span>
-              <span className="landing-display text-4xl sm:text-5xl font-bold text-[#f8c808] tabular-nums tracking-tight">
-                P 1,250,000
-              </span>
-              <p className="text-sm text-[#fdf9f4]/85 leading-snug">
-                Direct seed grants &amp; incubation capital disbursed
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* SECTION 3: FUNDED IDEAS PROOF STRIP + ECOSYSTEM PARTNERS */}
-      <section className="w-full bg-[#fdf9f4] py-16 sm:py-20 border-b border-[#e2bfb8]/60">
-        <div className="max-w-[1200px] mx-auto px-4 md:px-8 flex flex-col gap-10">
-          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-            <div className="max-w-[65ch]">
-              <h2 className="landing-display text-3xl sm:text-4xl font-bold text-[#1c1c19] tracking-tight">
-                Funded ideas across Botswana
-              </h2>
-              <p className="text-base text-[#4a3530] mt-2 leading-relaxed">
-                From solar agricultural storage to local green manufacturing, viable concepts move
-                from pitch to Pula disbursement.
-              </p>
-            </div>
-            <p className="text-sm font-semibold text-[#7c0700] shrink-0">
-              Sample content · Illustrative beneficiary stories
-            </p>
-          </div>
-
-          {/* 3 Story Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-7">
-            {FUNDED_STORIES.map((story) => {
-              const isFallback = Boolean(failedStoryIds[story.id]);
-              return (
-                <article
-                  key={story.id}
-                  className="flex flex-col bg-white rounded-xl overflow-hidden border border-[#e2bfb8]"
-                >
-                  <div className="relative aspect-[4/3] w-full bg-[#31231f] overflow-hidden">
-                    {!isFallback ? (
-                      <img
-                        src={story.imageSrc}
-                        alt={story.imageAlt}
-                        width={1200}
-                        height={896}
-                        referrerPolicy="no-referrer"
-                        onError={() =>
-                          setFailedStoryIds((prev) => ({ ...prev, [story.id]: true }))
-                        }
-                        className="w-full h-full object-cover object-center"
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-[#4a1810] landing-weave-pattern flex items-end p-5">
-                        <span className="text-sm font-semibold text-[#f8c808]">
-                          {story.sector} · {story.district}
-                        </span>
-                      </div>
-                    )}
-                    <div
-                      aria-hidden="true"
-                      className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/15 to-transparent pointer-events-none"
-                    />
-                    <div className="absolute bottom-3 left-4 right-4 flex items-center justify-between text-white">
-                      <span className="text-sm font-semibold">{story.firstName}</span>
-                      <span className="text-xs text-white/90">Sample story</span>
+                {/* Header */}
+                <div className="flex items-start justify-between gap-3 pt-1">
+                  <div className="flex flex-col gap-0.5">
+                    <div className="flex items-center gap-1.5 text-[#77574e] text-xs font-bold uppercase tracking-wider">
+                      <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                      <span>Intake Cycle 2026/2027</span>
                     </div>
+                    <h3 className="font-headline text-lg font-bold text-[#1c1c19] leading-snug">
+                      Botswana Innovation Gateway
+                    </h3>
                   </div>
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-bold shrink-0">
+                    <span className="material-symbols-outlined text-[14px]">check_circle</span>
+                    <span>Open for Intake</span>
+                  </span>
+                </div>
 
-                  <div className="p-6 flex flex-col gap-3 flex-1 justify-between">
-                    <div className="flex flex-col gap-2">
-                      <p className="text-sm text-[#4a3530]">
-                        {story.district} · {story.sector}
-                      </p>
-                      <p className="text-base text-[#1c1c19] leading-relaxed">{story.summary}</p>
+                {/* 3 Core Commitments Strip */}
+                <div className="space-y-2.5 pt-1">
+                  <div className="flex items-start gap-3 p-2.5 rounded-xl bg-white border border-[#e8dfd8] shadow-xs">
+                    <div className="w-8 h-8 rounded-lg bg-[#ffd3c8]/50 text-[#7c0700] flex items-center justify-center shrink-0 mt-0.5">
+                      <span className="material-symbols-outlined text-base">timer</span>
                     </div>
-
-                    <div className="pt-4 mt-2 border-t border-[#efe7de] flex items-baseline justify-between">
-                      <span className="text-sm text-[#4a3530]">Capital awarded</span>
-                      <span className="landing-display text-xl font-bold text-[#7c0700] tabular-nums">
-                        {story.capitalAwarded}
+                    <div className="text-xs">
+                      <span className="font-bold text-[#1c1c19] block">14-Day SLA Guarantee</span>
+                      <span className="text-[#5a413c] text-[11px] leading-tight block">
+                        No idea dies in a queue. Every review stage is tracked with automated escalation.
                       </span>
                     </div>
                   </div>
-                </article>
-              );
-            })}
-          </div>
 
-          {/* Ecosystem Partners Placeholder Row */}
-          <div className="pt-8 border-t border-[#e2bfb8]/80 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-            <div>
-              <h3 className="text-base font-bold text-[#1c1c19]">
-                National ecosystem verification partners
-              </h3>
-              <p className="text-sm text-[#4a3530] mt-0.5">
-                Partner marks shown as text placeholders until official vector logos are supplied.
-              </p>
+                  <div className="flex items-start gap-3 p-2.5 rounded-xl bg-white border border-[#e8dfd8] shadow-xs">
+                    <div className="w-8 h-8 rounded-lg bg-[#ffd3c8]/50 text-[#7c0700] flex items-center justify-center shrink-0 mt-0.5">
+                      <span className="material-symbols-outlined text-base">visibility_off</span>
+                    </div>
+                    <div className="text-xs">
+                      <span className="font-bold text-[#1c1c19] block">Double-Blind Merit Scoring</span>
+                      <span className="text-[#5a413c] text-[11px] leading-tight block">
+                        Personal IDs are masked so evaluations are based purely on innovation merit.
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3 p-2.5 rounded-xl bg-white border border-[#e8dfd8] shadow-xs">
+                    <div className="w-8 h-8 rounded-lg bg-[#ffd3c8]/50 text-[#7c0700] flex items-center justify-center shrink-0 mt-0.5">
+                      <span className="material-symbols-outlined text-base">payments</span>
+                    </div>
+                    <div className="text-xs">
+                      <span className="font-bold text-[#1c1c19] block">Catalytic Pula Grants</span>
+                      <span className="text-[#5a413c] text-[11px] leading-tight block">
+                        Up to BWP 500,000 for seed-stage prototypes and structured CEDA mentorship.
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quick Status Lookup Tool */}
+                <div className="bg-[#f7f3ee] border border-[#e2bfb8]/60 rounded-xl p-3.5 space-y-2 mt-1">
+                  <div className="flex items-center justify-between text-xs text-[#5a413c]">
+                    <span className="font-bold text-[#1c1c19]">Track Existing Application</span>
+                    <span className="text-[10px] text-[#77574e]">Reference Lookup</span>
+                  </div>
+                  <form onSubmit={handleTrack} className="flex gap-2">
+                    <input
+                      type="text"
+                      value={trackingInput}
+                      onChange={(e) => {
+                        setTrackingInput(e.target.value);
+                        setTrackingResult(null);
+                      }}
+                      placeholder="e.g. CEDA-INN-2026-0842"
+                      className="flex-1 px-3 py-1.5 bg-white border border-[#cfc4bc] rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-[#f8a018]"
+                    />
+                    <button
+                      type="submit"
+                      className="px-3 py-1.5 bg-[#31302d] hover:bg-[#1c1c19] text-white text-xs font-semibold rounded-lg shrink-0 transition-colors"
+                    >
+                      Track
+                    </button>
+                  </form>
+
+                  {trackingResult && (
+                    <div className="p-2.5 rounded-lg bg-white border border-amber-200 text-[11px] text-[#5e4038] space-y-1 animate-in fade-in">
+                      <p className="font-medium text-[#1c1c19]">{trackingResult}</p>
+                      <button
+                        type="button"
+                        onClick={() => setCurrentRoute('/login')}
+                        className="text-[#a02010] font-bold hover:underline inline-flex items-center gap-0.5"
+                      >
+                        <span>Sign in to view full dossier</span>
+                        <span className="material-symbols-outlined text-xs">arrow_forward</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Action Button */}
+                <div className="pt-1 flex flex-col gap-2">
+                  <button
+                    onClick={() => setCurrentRoute('/register')}
+                    className="w-full py-3 px-4 rounded-xl bg-[#a02010] hover:bg-[#861a0d] text-white text-xs font-bold uppercase tracking-wider shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <span>Register &amp; Submit Innovation</span>
+                    <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
+                  </button>
+                  <div className="flex items-center justify-between text-[11px] text-[#77574e] px-1">
+                    <span>100% Citizen Owned</span>
+                    <span className="font-semibold text-[#a02010]">BDPA Compliant</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* SECTION 2: STATS STRIP */}
+      <section className="w-full bg-[#f7f3ee] py-12 border-b border-[#e2bfb8]/40">
+        <div className="max-w-[1200px] mx-auto px-4 md:px-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Stat 1 */}
+            <div className="bg-white rounded-xl p-5 shadow-sm border border-[#e2bfb8]/60 relative overflow-hidden flex flex-col justify-between">
+              <div className="h-1 w-full bg-[#a02010] absolute top-0 left-0"></div>
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-xs font-semibold text-[#77574e] uppercase">Ideas submitted</span>
+                <div className="w-8 h-8 rounded-full bg-[#ffdad4] flex items-center justify-center text-[#7c0700]">
+                  <span className="material-symbols-outlined text-[18px]">lightbulb</span>
+                </div>
+              </div>
+              <div className="my-2">
+                <span className="font-headline text-3xl font-extrabold text-[#7c0700] tabular-nums">
+                  248
+                </span>
+              </div>
+              <p className="text-xs text-[#5a413c]">+18 this month across all 10 districts</p>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
-              <div className="px-5 py-3.5 rounded-lg bg-[#f4ede4] border border-[#e2bfb8]">
-                <span className="landing-display text-lg font-bold text-[#1c1c19] block">CIPA</span>
-                <span className="text-xs text-[#4a3530] block mt-0.5">
-                  Companies &amp; Intellectual Property Authority
+            {/* Stat 2 */}
+            <div className="bg-white rounded-xl p-5 shadow-sm border border-[#e2bfb8]/60 relative overflow-hidden flex flex-col justify-between">
+              <div className="h-1 w-full bg-[#943100] absolute top-0 left-0"></div>
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-xs font-semibold text-[#77574e] uppercase">Under review</span>
+                <div className="w-8 h-8 rounded-full bg-[#ffd3c8] flex items-center justify-center text-[#943100]">
+                  <span className="material-symbols-outlined text-[18px]">rate_review</span>
+                </div>
+              </div>
+              <div className="my-2">
+                <span className="font-headline text-3xl font-extrabold text-[#943100] tabular-nums">
+                  36
                 </span>
               </div>
-              <div className="px-5 py-3.5 rounded-lg bg-[#f4ede4] border border-[#e2bfb8]">
-                <span className="landing-display text-lg font-bold text-[#1c1c19] block">BURS</span>
-                <span className="text-xs text-[#4a3530] block mt-0.5">
-                  Botswana Unified Revenue Service
+              <p className="text-xs text-[#5a413c]">Multi-tier expert committees actively scoring</p>
+            </div>
+
+            {/* Stat 3 */}
+            <div className="bg-white rounded-xl p-5 shadow-sm border border-[#e2bfb8]/60 relative overflow-hidden flex flex-col justify-between">
+              <div className="h-1 w-full bg-emerald-700 absolute top-0 left-0"></div>
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-xs font-semibold text-[#77574e] uppercase">Approved</span>
+                <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-800">
+                  <span className="material-symbols-outlined text-[18px]">verified</span>
+                </div>
+              </div>
+              <div className="my-2">
+                <span className="font-headline text-3xl font-extrabold text-emerald-800 tabular-nums">
+                  41
                 </span>
               </div>
-              <div className="px-5 py-3.5 rounded-lg bg-[#f4ede4] border border-[#e2bfb8]">
-                <span className="landing-display text-lg font-bold text-[#1c1c19] block">BDIH</span>
-                <span className="text-xs text-[#4a3530] block mt-0.5">
-                  Botswana Digital &amp; Innovation Hub
+              <p className="text-xs text-[#5a413c]">Advanced to commercialization &amp; mentoring</p>
+            </div>
+
+            {/* Stat 4 */}
+            <div className="bg-white rounded-xl p-5 shadow-sm border border-[#e2bfb8]/60 relative overflow-hidden flex flex-col justify-between">
+              <div className="h-1 w-full bg-[#a02010] absolute top-0 left-0"></div>
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-xs font-semibold text-[#77574e] uppercase">Awarded capital</span>
+                <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-700">
+                  <span className="material-symbols-outlined text-[18px]">military_tech</span>
+                </div>
+              </div>
+              <div className="my-2">
+                <span className="font-headline text-3xl font-extrabold text-[#7c0700] tabular-nums">
+                  P 1,250,000
                 </span>
               </div>
+              <p className="text-xs text-[#5a413c]">Direct seed grants &amp; incubation capital disbursed</p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* SECTION 4: HOW IT WORKS (Connected horizontal timeline on desktop, vertical on mobile) */}
-      <section
-        id="how-it-works"
-        className="w-full bg-[#f4ede4] py-16 sm:py-20 border-b border-[#e2bfb8]/70"
-      >
-        <div className="max-w-[1200px] mx-auto px-4 md:px-8">
-          <div className="max-w-[65ch] mb-12">
-            <h2 className="landing-display text-3xl sm:text-4xl font-bold text-[#1c1c19] tracking-tight">
-              How it works
-            </h2>
-            <p className="text-base sm:text-lg text-[#4a3530] mt-2 leading-relaxed">
-              A transparent, merit-based five-stage journey from concept to enterprise funding.
+      {/* SECTION 3: HOW IT WORKS (5-STEP FLOW) */}
+      <section className="w-full max-w-[1200px] mx-auto px-4 md:px-8 py-16" id="how-it-works">
+        <div className="text-center max-w-2xl mx-auto mb-12 flex flex-col items-center gap-2">
+          <span className="text-xs uppercase font-bold tracking-widest text-[#77574e]">
+            Structured Lifecycle
+          </span>
+          <h2 className="font-headline text-3xl font-bold text-[#7c0700]">How it works</h2>
+          <p className="text-sm text-[#5a413c]">
+            A transparent, merit-based five-stage journey from concept to enterprise funding.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+          {/* Step 1 */}
+          <div className="bg-white rounded-xl p-5 shadow-sm border border-[#e2bfb8]/60 flex flex-col gap-3 group hover:shadow-md transition-shadow">
+            <div className="w-12 h-12 rounded-lg bg-[#f1ede8] flex items-center justify-center text-[#a02010] group-hover:bg-[#a02010] group-hover:text-white transition-colors">
+              <span className="material-symbols-outlined text-[24px]">description</span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-bold text-[#77574e]">STAGE 01</span>
+              <span className="bg-[#f1ede8] px-2 py-0.5 rounded text-[11px] text-[#5a413c]">∼ 20 Mins</span>
+            </div>
+            <h4 className="font-headline text-base font-bold text-[#1c1c19]">Submit</h4>
+            <p className="text-xs text-[#5a413c] leading-relaxed">
+              Register your Omang and submit your concept, market thesis, and pitch deck in under 20 minutes.
             </p>
           </div>
 
-          {/* Connected Progress Timeline */}
-          <div className="relative">
-            {/* Horizontal connecting line on desktop */}
-            <div
-              aria-hidden="true"
-              className="hidden lg:block absolute top-6 left-6 right-6 h-0.5 landing-sunrise-line"
-            />
-            {/* Vertical connecting line on mobile/tablet */}
-            <div
-              aria-hidden="true"
-              className="lg:hidden absolute top-6 bottom-6 left-6 w-0.5 bg-gradient-to-b from-[#7c0700] via-[#a02010] to-[#f8a018]"
-            />
+          {/* Step 2 */}
+          <div className="bg-white rounded-xl p-5 shadow-sm border border-[#e2bfb8]/60 flex flex-col gap-3 group hover:shadow-md transition-shadow">
+            <div className="w-12 h-12 rounded-lg bg-[#f1ede8] flex items-center justify-center text-[#a02010] group-hover:bg-[#a02010] group-hover:text-white transition-colors">
+              <span className="material-symbols-outlined text-[24px]">troubleshoot</span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-bold text-[#77574e]">STAGE 02</span>
+              <span className="bg-[#f1ede8] px-2 py-0.5 rounded text-[11px] text-[#5a413c]">7-10 Days</span>
+            </div>
+            <h4 className="font-headline text-base font-bold text-[#1c1c19]">Review</h4>
+            <p className="text-xs text-[#5a413c] leading-relaxed">
+              Independent sector specialists assess viability, commercial scalability, and local job impact.
+            </p>
+          </div>
 
-            <ol className="grid grid-cols-1 lg:grid-cols-5 gap-8 lg:gap-6">
-              {TIMELINE_STAGES.map((stage, index) => (
-                <li
-                  key={stage.step}
-                  className="relative pl-16 lg:pl-0 flex flex-col gap-3"
-                >
-                  <div
-                    className={`absolute left-0 top-0 lg:relative w-12 h-12 rounded-full flex items-center justify-center font-mono text-sm font-bold tabular-nums border-2 ${
-                      index === 4
-                        ? 'bg-[#7c0700] text-[#f8c808] border-[#f8a018]'
-                        : 'bg-[#fdf9f4] text-[#7c0700] border-[#a02010]'
-                    }`}
-                  >
-                    {stage.step}
-                  </div>
+          {/* Step 3 */}
+          <div className="bg-white rounded-xl p-5 shadow-sm border border-[#e2bfb8]/60 flex flex-col gap-3 group hover:shadow-md transition-shadow">
+            <div className="w-12 h-12 rounded-lg bg-[#f1ede8] flex items-center justify-center text-[#a02010] group-hover:bg-[#a02010] group-hover:text-white transition-colors">
+              <span className="material-symbols-outlined text-[24px]">forum</span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-bold text-[#77574e]">STAGE 03</span>
+              <span className="bg-[#f1ede8] px-2 py-0.5 rounded text-[11px] text-[#5a413c]">Interactive</span>
+            </div>
+            <h4 className="font-headline text-base font-bold text-[#1c1c19]">Feedback</h4>
+            <p className="text-xs text-[#5a413c] leading-relaxed">
+              Receive detailed, actionable written critiques and guidance directly from committee members.
+            </p>
+          </div>
 
-                  <div className="flex items-baseline justify-between lg:flex-col lg:items-start gap-1">
-                    <h3 className="landing-display text-xl font-bold text-[#1c1c19]">
-                      {stage.title}
-                    </h3>
-                    <span className="text-sm font-semibold text-[#7c0700]">{stage.timing}</span>
-                  </div>
+          {/* Step 4 */}
+          <div className="bg-white rounded-xl p-5 shadow-sm border border-[#e2bfb8]/60 flex flex-col gap-3 group hover:shadow-md transition-shadow">
+            <div className="w-12 h-12 rounded-lg bg-[#f1ede8] flex items-center justify-center text-[#a02010] group-hover:bg-[#a02010] group-hover:text-white transition-colors">
+              <span className="material-symbols-outlined text-[24px]">approval</span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-bold text-[#77574e]">STAGE 04</span>
+              <span className="bg-[#f1ede8] px-2 py-0.5 rounded text-[11px] text-[#5a413c]">Adjudication</span>
+            </div>
+            <h4 className="font-headline text-base font-bold text-[#1c1c19]">Approval</h4>
+            <p className="text-xs text-[#5a413c] leading-relaxed">
+              Formal adjudication by CEDA executive boards with clear funding recommendation.
+            </p>
+          </div>
 
-                  <p className="text-base text-[#4a3530] leading-relaxed max-w-[60ch]">
-                    {stage.description}
-                  </p>
-                </li>
-              ))}
-            </ol>
+          {/* Step 5 */}
+          <div className="bg-white rounded-xl p-5 shadow-sm border border-[#e2bfb8]/60 flex flex-col gap-3 group hover:shadow-md transition-shadow">
+            <div className="w-12 h-12 rounded-lg bg-[#f1ede8] flex items-center justify-center text-[#a02010] group-hover:bg-[#a02010] group-hover:text-white transition-colors">
+              <span className="material-symbols-outlined text-[24px]">workspace_premium</span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-bold text-[#77574e]">STAGE 05</span>
+              <span className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded text-[11px] font-bold">
+                Disbursement
+              </span>
+            </div>
+            <h4 className="font-headline text-base font-bold text-[#1c1c19]">Award</h4>
+            <p className="text-xs text-[#5a413c] leading-relaxed">
+              Grant disbursement in Pula, tailored incubation, and entry into CEDA mentorship networks.
+            </p>
           </div>
         </div>
       </section>
 
-      {/* SECTION 5: WHO CAN TAKE PART (1 Large Feature Panel + 2 Complementary Panels) */}
-      <section className="w-full bg-[#fdf9f4] py-16 sm:py-20">
+      {/* SECTION 4: WHO CAN TAKE PART */}
+      <section className="w-full bg-[#f7f3ee] py-16 border-t border-b border-[#e2bfb8]/40">
         <div className="max-w-[1200px] mx-auto px-4 md:px-8">
-          <div className="max-w-[65ch] mb-10">
-            <h2 className="landing-display text-3xl sm:text-4xl font-bold text-[#1c1c19] tracking-tight">
-              Who can take part
-            </h2>
-            <p className="text-base sm:text-lg text-[#4a3530] mt-2 leading-relaxed">
+          <div className="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-4">
+            <div>
+              <span className="text-xs uppercase font-bold tracking-widest text-[#77574e]">
+                Target Cohorts
+              </span>
+              <h2 className="font-headline text-3xl font-bold text-[#7c0700] mt-1">
+                Who can take part
+              </h2>
+            </div>
+            <p className="text-sm text-[#5a413c] max-w-lg">
               Empowering every tier of Batswana innovators across urban and rural districts.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-            {/* Large Feature Panel */}
-            <div className="lg:col-span-7 bg-[#2d1814] text-[#fdf9f4] rounded-2xl p-7 sm:p-10 flex flex-col justify-between gap-8 landing-weave-pattern">
-              <div className="flex flex-col gap-4">
-                <p className="text-sm font-semibold text-[#f8c808]">Individual &amp; Co-founders</p>
-                <h3 className="landing-display text-2xl sm:text-3xl font-bold text-white">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Card 1 */}
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-[#e2bfb8]/60 flex flex-col justify-between hover:shadow-md transition-all">
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <span className="px-2.5 py-1 rounded bg-[#ffd3c8] text-[#77574e] text-xs font-bold">
+                    Individual &amp; Co-founders
+                  </span>
+                  <span className="material-symbols-outlined text-[#a02010] text-[24px]">
+                    person_celebrate
+                  </span>
+                </div>
+                <h3 className="font-headline text-lg font-bold text-[#1c1c19]">
                   Citizen entrepreneurs
                 </h3>
-                <p className="text-base text-[#fdf9f4]/90 leading-relaxed max-w-[58ch]">
+                <p className="text-xs text-[#5a413c] leading-relaxed">
                   Batswana citizens aged 18+ with novel solutions in agriculture, manufacturing,
                   tourism, and services looking to transform ideas into viable ventures.
                 </p>
               </div>
-
-              <div className="flex flex-col gap-6">
-                <ul className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-5 border-t border-white/15 text-sm text-[#fdf9f4]">
-                  <li className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[18px] text-[#f8c808]" aria-hidden="true">
-                      check_circle
-                    </span>
-                    <span>Valid Omang required</span>
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[18px] text-[#f8c808]" aria-hidden="true">
-                      check_circle
-                    </span>
-                    <span>100% citizen-owned</span>
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[18px] text-[#f8c808]" aria-hidden="true">
-                      check_circle
-                    </span>
-                    <span>Grant &amp; debt options</span>
-                  </li>
-                </ul>
-
-                <div>
-                  <button
-                    type="button"
-                    onClick={() => setCurrentRoute('/register')}
-                    className="min-h-[44px] px-6 py-2.5 rounded-lg bg-[#f8a018] hover:bg-[#f8c808] text-[#1c1c19] text-base font-bold transition-colors cursor-pointer"
-                  >
-                    Apply as a citizen founder
-                  </button>
+              <div className="pt-4 mt-4 border-t border-[#f1ede8] flex flex-col gap-1.5 text-xs text-[#77574e]">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[16px] text-[#a02010]">check_circle</span>
+                  <span>Valid Omang required</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[16px] text-[#a02010]">check_circle</span>
+                  <span>100% citizen-owned</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[16px] text-[#a02010]">check_circle</span>
+                  <span>Grant &amp; debt options</span>
                 </div>
               </div>
             </div>
 
-            {/* Two Smaller Complementary Panels */}
-            <div className="lg:col-span-5 flex flex-col gap-6">
-              <div className="flex-1 bg-white rounded-xl p-6 sm:p-7 border border-[#e2bfb8] flex flex-col justify-between gap-4">
-                <div>
-                  <p className="text-sm font-semibold text-[#7c0700]">Registered Enterprises</p>
-                  <h3 className="landing-display text-xl font-bold text-[#1c1c19] mt-1">
-                    Startups and SMEs
-                  </h3>
-                  <p className="text-base text-[#4a3530] mt-2 leading-relaxed">
-                    Early-stage Botswana ventures aiming to test prototypes, scale domestic value
-                    addition, or expand export capacity in SADC.
-                  </p>
+            {/* Card 2 */}
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-[#e2bfb8]/60 flex flex-col justify-between hover:shadow-md transition-all">
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <span className="px-2.5 py-1 rounded bg-[#ffdad4] text-[#7c0700] text-xs font-bold">
+                    Registered Enterprises
+                  </span>
+                  <span className="material-symbols-outlined text-[#a02010] text-[24px]">
+                    domain
+                  </span>
                 </div>
-                <ul className="pt-4 border-t border-[#efe7de] flex flex-col gap-1.5 text-sm text-[#1c1c19]">
-                  <li>· CIPA &amp; BURS registered</li>
-                  <li>· Technology or operational innovation</li>
-                  <li>· Up to P 500,000 grant tranche</li>
-                </ul>
+                <h3 className="font-headline text-lg font-bold text-[#1c1c19]">
+                  Startups and SMEs
+                </h3>
+                <p className="text-xs text-[#5a413c] leading-relaxed">
+                  Early-stage Botswana ventures aiming to test prototypes, scale domestic value addition,
+                  or expand export capacity in SADC.
+                </p>
               </div>
-
-              <div className="flex-1 bg-[#f4ede4] rounded-xl p-6 sm:p-7 border border-[#e2bfb8] flex flex-col justify-between gap-4">
-                <div>
-                  <p className="text-sm font-semibold text-[#7c0700]">Youth &amp; Tertiary</p>
-                  <h3 className="landing-display text-xl font-bold text-[#1c1c19] mt-1">
-                    Students and youth
-                  </h3>
-                  <p className="text-base text-[#4a3530] mt-2 leading-relaxed">
-                    Graduates, vocational trainees, and student researchers from UB, BIUST, BUAN,
-                    and BAC with commercially viable innovations.
-                  </p>
+              <div className="pt-4 mt-4 border-t border-[#f1ede8] flex flex-col gap-1.5 text-xs text-[#77574e]">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[16px] text-[#a02010]">check_circle</span>
+                  <span>CIPA &amp; BURS registered</span>
                 </div>
-                <ul className="pt-4 border-t border-[#dfd1c6] flex flex-col gap-1.5 text-sm text-[#1c1c19]">
-                  <li>· Ages 18–35</li>
-                  <li>· Fast-track youth adjudication</li>
-                  <li>· Dedicated CEDA incubation mentor</li>
-                </ul>
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[16px] text-[#a02010]">check_circle</span>
+                  <span>Technology or operational innovation</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[16px] text-[#a02010]">check_circle</span>
+                  <span>Up to P 500,000 grant tranche</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Card 3 */}
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-[#e2bfb8]/60 flex flex-col justify-between hover:shadow-md transition-all">
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <span className="px-2.5 py-1 rounded bg-amber-100 text-amber-800 text-xs font-bold">
+                    Youth &amp; Tertiary
+                  </span>
+                  <span className="material-symbols-outlined text-[#a02010] text-[24px]">
+                    school
+                  </span>
+                </div>
+                <h3 className="font-headline text-lg font-bold text-[#1c1c19]">
+                  Students and youth
+                </h3>
+                <p className="text-xs text-[#5a413c] leading-relaxed">
+                  Graduates, vocational trainees, and student researchers from UB, BIUST, BUAN, and BAC
+                  with commercially viable innovations.
+                </p>
+              </div>
+              <div className="pt-4 mt-4 border-t border-[#f1ede8] flex flex-col gap-1.5 text-xs text-[#77574e]">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[16px] text-[#a02010]">check_circle</span>
+                  <span>Ages 18–35</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[16px] text-[#a02010]">check_circle</span>
+                  <span>Fast-track youth adjudication</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[16px] text-[#a02010]">check_circle</span>
+                  <span>Dedicated CEDA incubation mentor</span>
+                </div>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* SECTION 6: PRIVACY AND IP REASSURANCE BAND (Full-width high-trust band) */}
-      <section className="w-full bg-[#241c19] text-[#fdf9f4] py-14 sm:py-16">
-        <div className="max-w-[1200px] mx-auto px-4 md:px-8 flex flex-col gap-10">
-          <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 pb-8 border-b border-white/15">
-            <div className="max-w-[65ch]">
-              <h2 className="landing-display text-2xl sm:text-3xl font-bold text-white leading-snug">
-                Your intellectual property is protected. Only assigned reviewers see your submission.
-              </h2>
-              <p className="text-base text-[#fdf9f4]/85 mt-3 leading-relaxed">
-                Compliant with the Botswana Data Protection Act. Full confidentiality non-disclosure
-                agreements bind all committee evaluators.
-              </p>
+      {/* SECTION 5: SECURITY AND FAIRNESS BAND */}
+      <section className="w-full max-w-[1200px] mx-auto px-4 md:px-8 py-14">
+        <div className="bg-gradient-to-br from-[#f7f3ee] via-[#faefe4] to-[#f1ede8] border border-[#e2bfb8] rounded-2xl p-6 md:p-8 shadow-sm">
+          <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 pb-6 border-b border-[#e2bfb8]/60">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-xl bg-[#a02010] text-white flex items-center justify-center shrink-0 shadow-sm">
+                <span className="material-symbols-outlined text-[26px]">gavel</span>
+              </div>
+              <div>
+                <h3 className="font-headline text-lg font-bold text-[#1c1c19]">
+                  Your intellectual property is protected. Only assigned reviewers see your submission.
+                </h3>
+                <p className="text-xs text-[#5a413c] mt-1 max-w-2xl leading-relaxed">
+                  Compliant with the Botswana Data Protection Act. Full confidentiality non-disclosure
+                  agreements bind all committee evaluators.
+                </p>
+              </div>
             </div>
-            <div className="inline-flex items-center gap-2 text-sm font-semibold text-[#f8c808] shrink-0">
-              <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-                verified_user
-              </span>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white text-[#77574e] text-xs font-bold shadow-xs shrink-0">
+              <span className="material-symbols-outlined text-[16px] text-emerald-700">security</span>
               <span>BDPA Certified Compliance</span>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="flex flex-col gap-2">
-              <h3 className="text-base font-bold text-white">Role-based access</h3>
-              <p className="text-base text-[#fdf9f4]/80 leading-relaxed">
-                Only appointed evaluators and adjudicators can access your files; reviewers recuse
-                themselves if conflicts exist.
-              </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-6">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-lg bg-white flex items-center justify-center text-[#a02010] shrink-0 shadow-xs">
+                <span className="material-symbols-outlined text-[20px]">admin_panel_settings</span>
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-[#1c1c19]">Role-based access</h4>
+                <p className="text-xs text-[#5a413c] mt-1 leading-relaxed">
+                  Only appointed evaluators and adjudicators can access your files; reviewers recuse themselves if conflicts exist.
+                </p>
+              </div>
             </div>
 
-            <div className="flex flex-col gap-2">
-              <h3 className="text-base font-bold text-white">Immutable audit trail</h3>
-              <p className="text-base text-[#fdf9f4]/80 leading-relaxed">
-                Every score, comment, and timestamp is logged cryptographically on government-secured
-                servers.
-              </p>
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-lg bg-white flex items-center justify-center text-[#a02010] shrink-0 shadow-xs">
+                <span className="material-symbols-outlined text-[20px]">history_edu</span>
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-[#1c1c19]">Immutable audit trail</h4>
+                <p className="text-xs text-[#5a413c] mt-1 leading-relaxed">
+                  Every score, comment, and timestamp is logged cryptographically on government-secured servers.
+                </p>
+              </div>
             </div>
 
-            <div className="flex flex-col gap-2">
-              <h3 className="text-base font-bold text-white">Data privacy guaranteed</h3>
-              <p className="text-base text-[#fdf9f4]/80 leading-relaxed">
-                Personal identification (Omang, TIN, phone) is masked during blind technical
-                assessments.
-              </p>
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-lg bg-white flex items-center justify-center text-[#a02010] shrink-0 shadow-xs">
+                <span className="material-symbols-outlined text-[20px]">visibility_off</span>
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-[#1c1c19]">Data privacy guaranteed</h4>
+                <p className="text-xs text-[#5a413c] mt-1 leading-relaxed">
+                  Personal identification (Omang, TIN, phone) is masked during blind technical assessments.
+                </p>
+              </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* SECTION 7: LATEST ANNOUNCEMENTS (Editorial list with dates) */}
-      <section className="w-full bg-[#fdf9f4] py-16 sm:py-20">
-        <div className="max-w-[1200px] mx-auto px-4 md:px-8">
-          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-6 border-b border-[#e2bfb8]">
-            <div>
-              <h2 className="landing-display text-3xl font-bold text-[#1c1c19] tracking-tight">
-                Latest announcements
-              </h2>
-              <p className="text-base text-[#4a3530] mt-1">
-                Official intake notices and regional outreach workshops.
+      {/* SECTION 6: LATEST ANNOUNCEMENTS */}
+      <section className="w-full max-w-[1200px] mx-auto px-4 md:px-8 py-10">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <span className="text-xs uppercase font-bold tracking-wider text-[#77574e]">
+              Ecosystem Briefs
+            </span>
+            <h2 className="font-headline text-2xl font-bold text-[#7c0700]">Latest announcements</h2>
+          </div>
+          <button
+            onClick={() => setCurrentRoute('/guidelines')}
+            className="text-xs font-bold text-[#77574e] hover:text-[#7c0700] transition-colors flex items-center gap-1"
+          >
+            <span>All notices</span>
+            <span className="material-symbols-outlined text-[18px]">arrow_right_alt</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Announcement 1 */}
+          <div className="bg-white rounded-xl p-6 shadow-sm border border-[#e2bfb8]/60 flex flex-col justify-between hover:shadow-md transition-shadow group">
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="px-2 py-0.5 rounded bg-[#ffdbcf] text-[#943100] text-[11px] font-bold">
+                  Special Call
+                </span>
+                <span className="text-xs text-[#5a413c]">10 November 2026</span>
+              </div>
+              <h3 className="font-headline text-base font-bold text-[#1c1c19] mt-1 group-hover:text-[#a02010] transition-colors">
+                2026/2027 Agri-Tech &amp; Food Security Challenge Opened
+              </h3>
+              <p className="text-xs text-[#5a413c] leading-relaxed">
+                Special funding pool of P 5,000,000 designated for smart water conservation and
+                drought-resistant livestock solutions across the Kgalagadi, Chobe, and Ngamiland districts.
               </p>
             </div>
-
-            <button
-              type="button"
-              onClick={() => setCurrentRoute('/guidelines')}
-              className="min-h-[44px] self-start sm:self-auto text-base font-semibold text-[#7c0700] hover:text-[#a02010] cursor-pointer"
-            >
-              All notices
-            </button>
+            <div className="pt-4 flex items-center gap-1.5 text-[#a02010] text-xs font-bold">
+              <span>Read eligibility criteria</span>
+              <span className="material-symbols-outlined text-[16px] group-hover:translate-x-1 transition-transform">
+                arrow_forward
+              </span>
+            </div>
           </div>
 
-          <div className="divide-y divide-[#e2bfb8]">
-            {/* Notice 1 */}
-            <article className="py-7 grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-8 items-start">
-              <div className="lg:col-span-3 flex flex-col gap-1">
-                <time dateTime="2026-11-10" className="text-base font-semibold text-[#1c1c19]">
-                  10 November 2026
-                </time>
-                <span className="text-sm font-medium text-[#7c0700]">Special Call</span>
+          {/* Announcement 2 */}
+          <div className="bg-white rounded-xl p-6 shadow-sm border border-[#e2bfb8]/60 flex flex-col justify-between hover:shadow-md transition-shadow group">
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="px-2 py-0.5 rounded bg-[#e6e2dd] text-[#77574e] text-[11px] font-bold">
+                  Outreach
+                </span>
+                <span className="text-xs text-[#5a413c]">04 November 2026</span>
               </div>
-
-              <div className="lg:col-span-6">
-                <h3 className="landing-display text-xl font-bold text-[#1c1c19]">
-                  2026/2027 Agri-Tech &amp; Food Security Challenge Opened
-                </h3>
-                <p className="text-base text-[#4a3530] mt-2 leading-relaxed max-w-[65ch]">
-                  Special funding pool of P 5,000,000 designated for smart water conservation and
-                  drought-resistant livestock solutions across the Kgalagadi, Chobe, and Ngamiland
-                  districts.
-                </p>
-              </div>
-
-              <div className="lg:col-span-3 lg:text-right">
-                <button
-                  type="button"
-                  onClick={() => setCurrentRoute('/guidelines')}
-                  className="min-h-[44px] inline-flex items-center text-base font-semibold text-[#7c0700] hover:text-[#a02010] cursor-pointer"
-                >
-                  Read eligibility criteria
-                </button>
-              </div>
-            </article>
-
-            {/* Notice 2 */}
-            <article className="py-7 grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-8 items-start">
-              <div className="lg:col-span-3 flex flex-col gap-1">
-                <time dateTime="2026-11-04" className="text-base font-semibold text-[#1c1c19]">
-                  04 November 2026
-                </time>
-                <span className="text-sm font-medium text-[#4a3530]">Outreach</span>
-              </div>
-
-              <div className="lg:col-span-6">
-                <h3 className="landing-display text-xl font-bold text-[#1c1c19]">
-                  CEDA Nationwide Innovation Workshops in Francistown &amp; Maun
-                </h3>
-                <p className="text-base text-[#4a3530] mt-2 leading-relaxed max-w-[65ch]">
-                  Join regional CEDA officers for hands-on application coaching and pitch deck
-                  preparation sessions across the northern districts.
-                </p>
-              </div>
-
-              <div className="lg:col-span-3 lg:text-right">
-                <button
-                  type="button"
-                  onClick={() => setCurrentRoute('/register')}
-                  className="min-h-[44px] inline-flex items-center text-base font-semibold text-[#7c0700] hover:text-[#a02010] cursor-pointer"
-                >
-                  Register for clinic
-                </button>
-              </div>
-            </article>
+              <h3 className="font-headline text-base font-bold text-[#1c1c19] mt-1 group-hover:text-[#a02010] transition-colors">
+                CEDA Nationwide Innovation Workshops in Francistown &amp; Maun
+              </h3>
+              <p className="text-xs text-[#5a413c] leading-relaxed">
+                Join regional CEDA officers for hands-on application coaching and pitch deck
+                preparation sessions across the northern districts.
+              </p>
+            </div>
+            <div className="pt-4 flex items-center gap-1.5 text-[#a02010] text-xs font-bold">
+              <span>Register for clinic</span>
+              <span className="material-symbols-outlined text-[16px] group-hover:translate-x-1 transition-transform">
+                arrow_forward
+              </span>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* SECTION 8: FINAL CONVERSION CTA BAND */}
-      <section className="w-full bg-[#f4ede4] border-t border-[#e2bfb8] py-16 sm:py-20">
-        <div className="h-1 w-24 landing-sunrise-line mx-auto mb-8 rounded-full" aria-hidden="true" />
-        <div className="max-w-3xl mx-auto px-4 md:px-8 text-center flex flex-col items-center gap-5">
-          <h2 className="landing-display text-3xl sm:text-4xl font-bold text-[#1c1c19] tracking-tight [text-wrap:balance]">
+      {/* SECTION 7: CTA BAND */}
+      <section className="w-full bg-[#f7f3ee] py-16 border-t border-[#e2bfb8]/40">
+        <div className="max-w-4xl mx-auto px-4 md:px-8 text-center flex flex-col items-center gap-4">
+          <span className="text-xs font-bold px-3 py-1 rounded-full bg-[#f1ede8] text-[#943100] tracking-wide">
+            Take The Next Step
+          </span>
+          <h2 className="font-headline text-3xl font-bold text-[#7c0700] tracking-tight">
             Ready to submit your innovation?
           </h2>
-          <p className="text-base sm:text-lg text-[#4a3530] max-w-[55ch] leading-relaxed">
+          <p className="text-sm text-[#5a413c] max-w-xl">
             Turn your visionary idea into a thriving Botswana enterprise. Create your free account
             in less than two minutes.
           </p>
-          <div className="flex flex-col sm:flex-row items-center gap-5 pt-2">
+          <div className="flex flex-col sm:flex-row items-center gap-4 pt-2">
             <button
-              type="button"
-              onClick={handleDashboardRedirect}
-              className="min-h-[48px] px-8 py-3 rounded-lg bg-[#a02010] hover:bg-[#7c0700] text-white text-base font-semibold transition-colors cursor-pointer"
+              onClick={() => setCurrentRoute('/register')}
+              className="min-h-[46px] px-8 rounded-lg bg-[#a02010] hover:bg-[#861a0d] text-white text-sm font-bold shadow-md hover:shadow-lg transition-all"
             >
-              {currentUser ? `Open ${currentUser.role.toLowerCase()} dashboard` : 'Register and start submission'}
+              Register and start submission
             </button>
             <button
-              type="button"
-              onClick={() => {
-                const link = document.createElement('a');
-                link.href = '/documents/CEDA_Guidelines_and_Evaluation_Criteria.pdf';
-                link.download = 'CEDA_Guidelines_and_Evaluation_Criteria.pdf';
-                document.body.appendChild(link);
-                link.click();
-                link.remove();
-              }}
-              className="min-h-[44px] inline-flex items-center gap-2 text-base font-semibold text-[#7c0700] hover:text-[#1c1c19] cursor-pointer"
+              onClick={() => setCurrentRoute('/guidelines')}
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-[#77574e] hover:text-[#7c0700] underline"
             >
-              <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-                download
-              </span>
-              <span>Download guidelines &amp; criteria (PDF, 162 KB)</span>
+              <span className="material-symbols-outlined text-[18px]">download</span>
+              <span>Download guidelines &amp; criteria (PDF, 2.4 MB)</span>
             </button>
           </div>
         </div>
       </section>
-
-      {/* DESKTOP HELP ACTION */}
-      <div className="fixed bottom-6 right-6 z-40 hidden md:flex">
-        <button
-          onClick={() => setCurrentRoute('/help-center')}
-          className="min-h-[48px] flex items-center gap-3 px-4 py-2 rounded-full bg-white text-[#1c1c19] shadow-lg hover:shadow-xl transition-shadow cursor-pointer border border-[#e2bfb8]"
-          type="button"
-        >
-          <span className="w-8 h-8 rounded-full bg-[#a02010] text-white flex items-center justify-center shrink-0">
-            <span className="material-symbols-outlined text-[18px]" aria-hidden="true">
-              support_agent
-            </span>
-          </span>
-          <span className="flex flex-col text-left">
-            <span className="text-sm font-bold text-[#1c1c19]">Chat with CEDA</span>
-            <span className="text-xs text-[#4a3530]">Working days 09:00 – 16:00 CAT</span>
-          </span>
-        </button>
-      </div>
-
-      {/* MOBILE STICKY BOTTOM BAR (Hides cleanly near footer) */}
-      <div
-        className={`md:hidden fixed bottom-0 inset-x-0 z-40 bg-[#fdf9f4]/95 backdrop-blur-sm border-t border-[#e2bfb8] px-4 py-2.5 transition-transform duration-200 motion-reduce:transition-none ${
-          isNearFooter ? 'translate-y-full pointer-events-none' : 'translate-y-0'
-        }`}
-      >
-        <div className="flex items-center justify-between gap-3 max-w-md mx-auto">
-          <button
-            type="button"
-            onClick={() => setCurrentRoute('/help-center')}
-            className="min-h-[44px] px-3 text-sm font-semibold text-[#4a3530] hover:text-[#7c0700] shrink-0 cursor-pointer"
-          >
-            Help
-          </button>
-          <button
-            type="button"
-            onClick={handleDashboardRedirect}
-            className="flex-1 min-h-[44px] px-5 py-2.5 rounded-lg bg-[#a02010] hover:bg-[#7c0700] text-white text-base font-semibold transition-colors cursor-pointer"
-          >
-            {currentUser ? 'Open dashboard' : 'Submit an idea'}
-          </button>
-        </div>
-      </div>
     </div>
   );
 };

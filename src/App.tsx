@@ -3,13 +3,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ChatProvider } from './context/ChatContext';
 import { Header } from './components/common/Header';
 import { Footer } from './components/common/Footer';
 import { IdleTimeoutModal } from './components/common/IdleTimeoutModal';
 import { RouteGuard } from './components/common/RouteGuard';
 import { seedFirestoreCollections } from './services/seedFirestore';
+import { ChatWidget } from './components/ChatWidget';
 
 // Pages
 import { LandingPage } from './components/pages/LandingPage';
@@ -38,12 +40,16 @@ import { AdminDashboard } from './components/pages/dashboards/AdminDashboard';
 import { AdminUsersPage } from './components/pages/dashboards/AdminUsersPage';
 import { AdminComingSoonPage } from './components/pages/dashboards/AdminComingSoonPage';
 import { StakeholderView } from './components/pages/dashboards/StakeholderView';
+import { AdminChatSettingsPage } from './components/pages/dashboards/AdminChatSettingsPage';
 import { ADMIN_NAV_ITEMS, AdminRoutePath } from './data/adminConfig';
 
 const ADMIN_COMING_SOON_PATHS = new Set<string>(
-  ADMIN_NAV_ITEMS.filter((item) => item.path !== '/admin' && item.path !== '/admin/users').map(
-    (item) => item.path
-  )
+  ADMIN_NAV_ITEMS.filter(
+    (item) =>
+      item.path !== '/admin' &&
+      item.path !== '/admin/users' &&
+      item.path !== '/admin/settings/chat'
+  ).map((item) => item.path)
 );
 
 const WIZARD_PATHS = new Set<string>([
@@ -78,7 +84,6 @@ const AppContent: React.FC = () => {
   }, [setCurrentRoute]);
 
   const cleanPath = currentRoute.split('?')[0];
-  const prevCleanPathRef = useRef<string>(cleanPath);
   const resetRedirectTarget = (() => {
     if (cleanPath !== '/reset-password') return null;
     const queryString = currentRoute.includes('?') ? currentRoute.split('?')[1] : '';
@@ -103,11 +108,8 @@ const AppContent: React.FC = () => {
     if (window.location.pathname + window.location.search !== currentRoute) {
       window.history.pushState(null, '', currentRoute);
     }
-    if (prevCleanPathRef.current !== cleanPath) {
-      prevCleanPathRef.current = cleanPath;
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  }, [cleanPath, currentRoute, resetRedirectTarget, setCurrentRoute]);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [currentRoute, resetRedirectTarget, setCurrentRoute]);
   const isAdminRoute =
     cleanPath === '/admin' ||
     cleanPath.startsWith('/admin/') ||
@@ -134,6 +136,14 @@ const AppContent: React.FC = () => {
   const hidePublicChrome = showAdminShell || showSubmitterShell;
 
   const renderCurrentPage = () => {
+    if (cleanPath === '/admin/settings/chat') {
+      return (
+        <RouteGuard allowedRoles={['ADMIN']}>
+          <AdminChatSettingsPage />
+        </RouteGuard>
+      );
+    }
+
     if (ADMIN_COMING_SOON_PATHS.has(cleanPath)) {
       return (
         <RouteGuard allowedRoles={['ADMIN']}>
@@ -306,6 +316,7 @@ const AppContent: React.FC = () => {
       )}
       {!hidePublicChrome && <Footer />}
       <IdleTimeoutModal />
+      <ChatWidget />
     </div>
   );
 };
@@ -313,7 +324,9 @@ const AppContent: React.FC = () => {
 export default function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <ChatProvider>
+        <AppContent />
+      </ChatProvider>
     </AuthProvider>
   );
 }

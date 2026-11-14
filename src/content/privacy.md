@@ -103,8 +103,8 @@ We may update this Notice. The version and date at the top will change. For impo
 ## 12. Contact and complaints
 
 Citizen Entrepreneurial Development Agency (CEDA)
-CEDA House, Prime Plaza, Matante Road and Khama Crescent Extension, CBD, Gaborone, Botswana · Private Bag 00504, Gaborone
-Privacy contact: dpo@ceda.co.bw
-Phone: +267 317 0895 (fax +267 317 0896)
+[CEDA_PHYSICAL_ADDRESS]
+Privacy contact: [CEDA_PRIVACY_EMAIL]
+Phone: [CEDA_PHONE]
 
 If you are not happy with how we handle your data, you can complain to the Information and Data Protection Commission of Botswana.

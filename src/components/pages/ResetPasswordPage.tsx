@@ -201,8 +201,6 @@ export const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({ initialTok
             <img
               src="/assets/ceda-logo.png"
               alt="CEDA - Citizen Entrepreneurial Development Agency"
-              width={160}
-              height={98}
               className="h-12 w-auto object-contain mx-auto"
             />
             <div className="text-center mt-1">

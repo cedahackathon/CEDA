@@ -19,8 +19,6 @@ export const Footer: React.FC = () => {
               <img
                 src="/assets/ceda-logo.png"
                 alt="CEDA Logo"
-                width={160}
-                height={98}
                 className="h-9 w-auto object-contain bg-white/90 p-1 rounded"
               />
             </div>
@@ -129,7 +127,7 @@ export const Footer: React.FC = () => {
                 Email:{' '}
                 <a
                   href="mailto:enquiries@ceda.co.bw"
-                  className="hover:text-amber-200 transition-colors"
+                  className="underline hover:text-amber-200 transition-colors"
                 >
                   enquiries@ceda.co.bw
                 </a>

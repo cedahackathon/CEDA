@@ -157,36 +157,6 @@
         "note": { "type": "string", "description": "Optional description note (max 200 chars)" }
       },
       "required": ["id", "name", "storagePath", "publicUrl", "size", "type", "uploaderId", "createdAt"]
-    },
-    "idea_events": {
-      "title": "Idea Events",
-      "description": "Applicant-visible timeline events under ideas/{ideaId}/events/{eventId}.",
-      "fields": {
-        "title": { "type": "string", "description": "Short milestone or activity heading" },
-        "detail": { "type": "string", "description": "Optional descriptive detail for the applicant" },
-        "actorLabel": { "type": "string", "description": "Non-identifying committee or system label" },
-        "eventType": { "type": "string", "description": "Event category identifier" },
-        "applicantVisible": { "type": "boolean", "description": "Whether the submitter may view this event" },
-        "createdAt": { "type": "string", "format": "date-time", "description": "Timestamp when the event occurred" }
-      },
-      "required": ["title", "applicantVisible", "createdAt"]
-    },
-    "idea_queries": {
-      "title": "Idea Queries",
-      "description": "Clarification or feedback requests and submitter responses under ideas/{ideaId}/queries/{queryId}.",
-      "fields": {
-        "queryRef": { "type": "string", "description": "Short reference code for the query" },
-        "title": { "type": "string", "description": "Clarification request subject" },
-        "message": { "type": "string", "description": "Committee clarification question or instruction" },
-        "fromLabel": { "type": "string", "description": "Committee name issuing the request" },
-        "status": { "type": "string", "enum": ["open", "responded"], "description": "Current query status" },
-        "createdAt": { "type": "string", "format": "date-time", "description": "Issued timestamp" },
-        "dueAt": { "type": "string", "format": "date-time", "description": "Optional response deadline" },
-        "respondedAt": { "type": "string", "format": "date-time", "description": "Server timestamp of submitter reply" },
-        "attachmentsRequested": { "type": "number", "description": "Minimum supporting attachments requested" },
-        "response": { "type": "object", "description": "Submitter reply payload containing message and uploaded attachments" }
-      },
-      "required": ["title", "message", "status", "createdAt"]
     }
   }
 }

@@ -123,8 +123,6 @@ function formatHour24(hour: number): string {
   return `${String(hour).padStart(2, '0')}:00`;
 }
 
-export const TYPICAL_TURNAROUND_DAYS = 14;
-
 export const SUBMITTER_SUPPORT_CONFIG: SupportConfig = {
   branchCount: 14,
   advisoryCopy: 'Advisors across our 14 branches can help with your submission.',
