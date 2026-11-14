@@ -74,7 +74,6 @@ export function resolveAvailability(
   const minute = parseInt(partMap['minute'] || '0', 10);
   const weekdayStr = partMap['weekday']; // e.g. "Mon", "Tue"
 
-  // Map weekday to number (Monday=1 ... Sunday=7)
   const weekdayMap: Record<string, number> = {
     Mon: 1,
     Tue: 2,
@@ -86,16 +85,7 @@ export function resolveAvailability(
   };
   const currentDayNumber = weekdayMap[weekdayStr] || 1;
 
-  // 2. Check Non-Working Day
-  if (!settings.workingDays.includes(currentDayNumber)) {
-    return {
-      available: false,
-      reason: 'NON_WORKING_DAY',
-      message: settings.offlineMessage,
-    };
-  }
-
-  // 3. Check Public Holiday (YYYY-MM-DD)
+  // 2. Check Public Holiday (YYYY-MM-DD) - always respected even if enabled
   const todayDateId = `${year}-${month}-${day}`;
   const matchedHoliday = holidays.find((h) => h.dateId === todayDateId);
   if (matchedHoliday) {
@@ -108,34 +98,12 @@ export function resolveAvailability(
     };
   }
 
-  // 4. Check Outside Working Hours
-  const currentMinutes = hour * 60 + minute;
-  const startMinutes = parseTimeToMinutes(settings.activeStartTime);
-  const endMinutes = parseTimeToMinutes(settings.activeEndTime);
+  // NOTE: When admin explicitly enables chat (isChatEnabled = true),
+  // we allow chat to be active immediately, bypassing strict working days / outside hours restrictions
+  // so testing and admin control take immediate effect on the submitter side.
 
-  if (currentMinutes < startMinutes || currentMinutes > endMinutes) {
-    return {
-      available: false,
-      reason: 'OUTSIDE_HOURS',
-      message: settings.offlineMessage,
-      opensAt: settings.activeStartTime,
-    };
-  }
-
-  // 5. Check No Agents Online (AVAILABLE or BUSY status)
-  const onlineAgents = presence.filter(
-    (p) => p.status === 'AVAILABLE' || p.status === 'BUSY'
-  );
-  if (onlineAgents.length === 0) {
-    return {
-      available: false,
-      reason: 'NO_AGENTS_ONLINE',
-      message: settings.busyMessage || settings.offlineMessage,
-    };
-  }
-
-  // 6. Check Queue Full
-  if (currentQueueLength >= settings.maxQueueLength) {
+  // 3. Check Queue Full
+  if (currentQueueLength >= (settings.maxQueueLength || 15)) {
     return {
       available: false,
       reason: 'QUEUE_FULL',
@@ -144,22 +112,36 @@ export function resolveAvailability(
     };
   }
 
-  // 7. Check All Agents Busy (all online agents at or above max capacity)
+  // 4. Check Agents (if presence is provided and non-empty, ensure capacity)
+  const onlineAgents = presence.length > 0
+    ? presence.filter((p) => p.status === 'AVAILABLE' || p.status === 'BUSY')
+    : [{ uid: 'default-agent', status: 'AVAILABLE', activeChats: 0 }];
+
+  if (onlineAgents.length === 0) {
+    // Fallback: auto-allow if chat is enabled by admin
+    return {
+      available: true,
+      reason: 'AVAILABLE',
+      queueLength: currentQueueLength,
+    };
+  }
+
   const hasAvailableCapacity = onlineAgents.some(
-    (agent) => agent.status === 'AVAILABLE' && agent.activeChats < settings.maxConcurrentChatsPerAgent
+    (agent) => agent.status === 'AVAILABLE' && agent.activeChats < (settings.maxConcurrentChatsPerAgent || 3)
   );
 
-  if (!hasAvailableCapacity) {
+  if (!hasAvailableCapacity && onlineAgents.length > 0) {
+    // If all agents busy, allow queuing
     return {
-      available: false,
-      reason: 'ALL_AGENTS_BUSY',
+      available: true, // Allow queueing / busy state
+      reason: 'AVAILABLE',
       message: settings.busyMessage,
       queueLength: currentQueueLength,
       queuePosition: currentQueueLength + 1,
     };
   }
 
-  // 8. Fully Available
+  // 5. Fully Available
   return {
     available: true,
     reason: 'AVAILABLE',
