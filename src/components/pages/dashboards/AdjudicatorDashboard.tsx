@@ -9,9 +9,7 @@ import { useAuth } from '../../../context/AuthContext';
 export const AdjudicatorDashboard: React.FC = () => {
   const { currentUser } = useAuth();
   const [quorumSigned, setQuorumSigned] = useState(false);
-  const [decisionNotes, setDecisionNotes] = useState(
-    'Committee recommends P 450,000 grant tranche subject to proof of concept deployment in Chobe grain depot.'
-  );
+  const [decisionNotes, setDecisionNotes] = useState('');
   const [selectedAction, setSelectedAction] = useState<'grant' | 'blend' | 'revise' | 'reject'>('grant');
   const [decisionSuccess, setDecisionSuccess] = useState(false);
 
@@ -197,12 +195,13 @@ export const AdjudicatorDashboard: React.FC = () => {
 
               <div>
                 <label className="block text-xs font-semibold text-[#31302d] mb-1">
-                  Board Resolution Justification (Defensible Public Audit Evidence) <span className="text-red-600">Required</span>
+                  Board Resolution Justification (Defensible Public Audit Evidence) <span className="text-[#ba1a1a]">*</span>
                 </label>
                 <textarea
                   rows={3}
                   value={decisionNotes}
                   onChange={(e) => setDecisionNotes(e.target.value)}
+                  placeholder="Enter board resolution justification and grant tranche audit notes..."
                   className="w-full p-3 border border-[#cfc4bc] rounded-xl text-xs focus:outline-none focus:ring-3 focus:ring-[#f8a018]"
                 />
               </div>

@@ -2122,7 +2122,6 @@ export const SubmitIdeaWizard: React.FC<SubmitIdeaWizardProps> = ({ routePath })
                             <span className="material-symbols-outlined text-[15px]">edit</span>
                             <span>Edit profile</span>
                           </button>
-                          <p className="text-[11px] text-[#77574e] mt-0.5">* Required</p>
                         </div>
                       </div>
 

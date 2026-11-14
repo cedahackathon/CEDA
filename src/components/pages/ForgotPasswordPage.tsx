@@ -11,7 +11,7 @@ import { VerificationChannel } from '../../types/auth';
 export const ForgotPasswordPage: React.FC = () => {
   const { setCurrentRoute, language } = useAuth();
 
-  const [identifier, setIdentifier] = useState('kagiso.mogae@innovate.co.bw');
+  const [identifier, setIdentifier] = useState('');
   const [deliveryChannel, setDeliveryChannel] = useState<VerificationChannel>('email');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSent, setIsSent] = useState(false);
@@ -135,9 +135,8 @@ export const ForgotPasswordPage: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <label htmlFor="recovery-ident" className="text-xs font-bold text-[#1c1c19]">
                     Registered Email address or Botswana Mobile number{' '}
-                    <span className="text-[#ba1a1a]">* Required</span>
+                    <span className="text-[#ba1a1a]">*</span>
                   </label>
-                  <span className="text-[11px] text-[#77574e]">Required</span>
                 </div>
                 <div className="relative flex items-center">
                   <span className="material-symbols-outlined absolute left-3.5 text-[#77574e] text-[18px] pointer-events-none">

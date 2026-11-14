@@ -418,7 +418,6 @@ export const Step2IdeaDetails: React.FC<Step2IdeaDetailsProps> = ({
             Describe your innovation, the local problem it addresses, and its expected impact.
           </p>
         </div>
-        <p className="text-[11px] text-[#77574e] shrink-0 pt-0.5">* Required</p>
       </div>
 
       {/* Save Error Banner */}

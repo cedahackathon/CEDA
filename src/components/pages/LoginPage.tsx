@@ -18,9 +18,9 @@ export const LoginPage: React.FC = () => {
   const [authMethod, setAuthMethod] = useState<'password' | 'otp' | 'biometric'>('password');
 
   // Fields
-  const [identifier, setIdentifier] = useState('kagiso.molefe@ceda-innovate.co.bw');
-  const [password, setPassword] = useState('Ceda#2026Demo');
-  const [otpCode, setOtpCode] = useState('582491');
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
+  const [otpCode, setOtpCode] = useState('');
   const [rememberDevice, setRememberDevice] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -332,7 +332,7 @@ export const LoginPage: React.FC = () => {
                   <form onSubmit={handleSubmit} className="flex flex-col gap-4">
                     <div className="flex flex-col gap-1">
                       <label htmlFor="login-ident" className="text-xs font-bold text-[#1c1c19] flex items-center justify-between">
-                        <span>Email address or phone number <span className="text-[#ba1a1a]">* Required</span></span>
+                        <span>Email address or phone number <span className="text-[#ba1a1a]">*</span></span>
                         <span className="text-[11px] text-[#77574e] font-normal">Omang / Mobile linked</span>
                       </label>
                       <div className="relative flex items-center">
@@ -341,6 +341,7 @@ export const LoginPage: React.FC = () => {
                           type="text"
                           value={identifier}
                           onChange={(e) => setIdentifier(e.target.value)}
+                          placeholder="e.g. name@domain.co.bw or 71 234 567"
                           required
                           className="w-full h-11 px-4 bg-[#f7f3ee] focus:bg-white rounded-lg text-xs font-medium text-[#1c1c19] border border-[#e2bfb8]/60 focus:border-[#a02010]"
                         />
@@ -350,7 +351,7 @@ export const LoginPage: React.FC = () => {
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center justify-between">
                         <label htmlFor="login-pwd" className="text-xs font-bold text-[#1c1c19]">
-                          Password <span className="text-[#ba1a1a]">* Required</span>
+                          Password <span className="text-[#ba1a1a]">*</span>
                         </label>
                         <button
                           type="button"
@@ -366,6 +367,7 @@ export const LoginPage: React.FC = () => {
                           type={showPassword ? 'text' : 'password'}
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
+                          placeholder="Enter your password"
                           required
                           className="w-full h-11 pl-4 pr-11 bg-[#f7f3ee] focus:bg-white rounded-lg text-xs font-medium text-[#1c1c19] border border-[#e2bfb8]/60 focus:border-[#a02010]"
                         />
@@ -442,7 +444,7 @@ export const LoginPage: React.FC = () => {
 
                     <div className="flex flex-col gap-1">
                       <label htmlFor="login-otp-ident" className="text-xs font-bold text-[#1c1c19]">
-                        Registered Mobile Number or Email <span className="text-[#ba1a1a]">* Required</span>
+                        Registered Mobile Number or Email <span className="text-[#ba1a1a]">*</span>
                       </label>
                       <div className="flex gap-2">
                         <input
@@ -465,7 +467,7 @@ export const LoginPage: React.FC = () => {
 
                     <div className="flex flex-col gap-1">
                       <label htmlFor="login-otp-code" className="text-xs font-bold text-[#1c1c19]">
-                        Enter 6-Digit Code <span className="text-[#ba1a1a]">* Required</span>
+                        Enter 6-Digit Code <span className="text-[#ba1a1a]">*</span>
                       </label>
                       <input
                         id="login-otp-code"

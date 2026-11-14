@@ -378,7 +378,7 @@ export const Step3Documents: React.FC<Step3DocumentsProps> = ({
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#f1ede8] border border-[#d8cec6] text-[11px] font-semibold text-[#5a413c]">
             <span className="material-symbols-outlined text-[14px]">upload_file</span>
-            <span>Required</span>
+            <span>Not attached</span>
           </span>
         );
       }
@@ -795,7 +795,6 @@ export const Step3Documents: React.FC<Step3DocumentsProps> = ({
             {DOCUMENT_MAX_FILES_PER_IDEA} files per application).
           </p>
         </div>
-        <p className="text-[11px] text-[#77574e] shrink-0 pt-0.5">* Required</p>
       </div>
 
       {/* Save Error Banner */}

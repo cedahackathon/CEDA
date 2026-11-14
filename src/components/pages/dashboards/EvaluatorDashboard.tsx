@@ -24,7 +24,7 @@ export const EvaluatorDashboard: React.FC = () => {
     commercialScalability: 28,
     jobCreation: 16,
     citizenInclusion: 12,
-    comments: 'Strong localized value addition. Silo solar design significantly cuts post-harvest spoilage in Chobe.',
+    comments: '',
   });
   const [isSubmitted, setIsSubmitted] = useState(false);
 
@@ -310,7 +310,7 @@ export const EvaluatorDashboard: React.FC = () => {
                   {/* Written Critique */}
                   <div>
                     <label className="block text-xs font-semibold text-[#31302d] mb-1">
-                      Actionable Technical Critique & Recommendations <span className="text-red-600">Required</span>
+                      Actionable Technical Critique & Recommendations <span className="text-[#ba1a1a]">*</span>
                     </label>
                     <textarea
                       rows={3}

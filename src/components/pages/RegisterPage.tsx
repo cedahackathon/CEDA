@@ -29,9 +29,9 @@ export const RegisterPage: React.FC = () => {
   const [bdpaConsent, setBdpaConsent] = useState(false);
 
   // Business specific fields
-  const [tradingName, setTradingName] = useState('Kalahari Eco-Tech Solutions (Pty) Ltd');
-  const [cipaNumber, setCipaNumber] = useState('BW0000128945');
-  const [bursTin, setBursTin] = useState('C0008492019');
+  const [tradingName, setTradingName] = useState('');
+  const [cipaNumber, setCipaNumber] = useState('');
+  const [bursTin, setBursTin] = useState('');
 
   // UI States
   const [showPassword, setShowPassword] = useState(false);
@@ -272,8 +272,8 @@ export const RegisterPage: React.FC = () => {
                   Create your account
                 </h2>
                 <p className="text-xs text-[#5a413c] mt-1">
-                  Start your innovation submission journey. Required fields are marked with a red asterisk and the word Required (
-                  <span className="text-[#ba1a1a] font-medium">* Required</span>).
+                  Start your innovation submission journey. Required fields are marked with{' '}
+                  <span className="text-[#ba1a1a] font-medium">*</span>.
                 </p>
               </div>
 
@@ -315,7 +315,7 @@ export const RegisterPage: React.FC = () => {
                 <fieldset className="flex flex-col gap-1.5">
                   <legend className="text-xs font-bold text-[#1c1c19] flex items-center justify-between">
                     <span>
-                      Account Type <span className="text-[#ba1a1a]">* Required</span>
+                      Account Type <span className="text-[#ba1a1a]">*</span>
                     </span>
                     <span className="text-[11px] text-[#77574e] font-normal">
                       Select entity structure
@@ -353,7 +353,7 @@ export const RegisterPage: React.FC = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="flex flex-col gap-1">
                     <label htmlFor="reg-first-name" className="text-xs font-bold text-[#1c1c19]">
-                      First name <span className="text-[#ba1a1a]">* Required</span>
+                      First name <span className="text-[#ba1a1a]">*</span>
                     </label>
                     <div className="relative">
                       <input
@@ -387,7 +387,7 @@ export const RegisterPage: React.FC = () => {
 
                   <div className="flex flex-col gap-1">
                     <label htmlFor="reg-surname" className="text-xs font-bold text-[#1c1c19]">
-                      Surname <span className="text-[#ba1a1a]">* Required</span>
+                      Surname <span className="text-[#ba1a1a]">*</span>
                     </label>
                     <div className="relative">
                       <input
@@ -425,7 +425,7 @@ export const RegisterPage: React.FC = () => {
                   <div className="flex items-center justify-between">
                     <label htmlFor="reg-omang" className="text-xs font-bold text-[#1c1c19] flex items-center gap-1.5">
                       <span>Omang or Passport number</span>
-                      <span className="text-[#ba1a1a]">* Required</span>
+                      <span className="text-[#ba1a1a]">*</span>
                     </label>
 
                     <div className="relative">
@@ -488,7 +488,7 @@ export const RegisterPage: React.FC = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="flex flex-col gap-1">
                     <label htmlFor="reg-dob" className="text-xs font-bold text-[#1c1c19]">
-                      Date of birth <span className="text-[#ba1a1a]">* Required</span>
+                      Date of birth <span className="text-[#ba1a1a]">*</span>
                     </label>
                     <input
                       id="reg-dob"
@@ -503,7 +503,7 @@ export const RegisterPage: React.FC = () => {
 
                   <div className="flex flex-col gap-1">
                     <label htmlFor="reg-district" className="text-xs font-bold text-[#1c1c19]">
-                      District <span className="text-[#ba1a1a]">* Required</span>
+                      District <span className="text-[#ba1a1a]">*</span>
                     </label>
                     <select
                       id="reg-district"
@@ -527,7 +527,7 @@ export const RegisterPage: React.FC = () => {
 
                   <div className="flex flex-col gap-1">
                     <label htmlFor="reg-town" className="text-xs font-bold text-[#1c1c19]">
-                      Town / Village <span className="text-[#ba1a1a]">* Required</span>
+                      Town / Village <span className="text-[#ba1a1a]">*</span>
                     </label>
                     <select
                       id="reg-town"
@@ -556,7 +556,7 @@ export const RegisterPage: React.FC = () => {
 
                     <div className="flex flex-col gap-1">
                       <label htmlFor="reg-trading-name" className="text-xs font-bold text-[#1c1c19]">
-                        Registered Trading Name <span className="text-[#ba1a1a]">* Required</span>
+                        Registered Trading Name <span className="text-[#ba1a1a]">*</span>
                       </label>
                       <input
                         id="reg-trading-name"
@@ -572,7 +572,7 @@ export const RegisterPage: React.FC = () => {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="flex flex-col gap-1">
                         <label htmlFor="reg-cipa" className="text-xs font-bold text-[#1c1c19]">
-                          CIPA Company Number <span className="text-[#ba1a1a]">* Required</span>
+                          CIPA Company Number <span className="text-[#ba1a1a]">*</span>
                         </label>
                         <input
                           id="reg-cipa"
@@ -586,7 +586,7 @@ export const RegisterPage: React.FC = () => {
                       </div>
                       <div className="flex flex-col gap-1">
                         <label htmlFor="reg-tin" className="text-xs font-bold text-[#1c1c19]">
-                          BURS TIN (Tax Number) <span className="text-[#ba1a1a]">* Required</span>
+                          BURS TIN (Tax Number) <span className="text-[#ba1a1a]">*</span>
                         </label>
                         <input
                           id="reg-tin"
@@ -607,7 +607,7 @@ export const RegisterPage: React.FC = () => {
                   {/* Email */}
                   <div className="flex flex-col gap-1">
                     <label htmlFor="reg-email" className="text-xs font-bold text-[#1c1c19] flex items-center justify-between">
-                      <span>Email address <span className="text-[#ba1a1a]">* Required</span></span>
+                      <span>Email address <span className="text-[#ba1a1a]">*</span></span>
                       {touched.email && !isEmailValid && (
                         <span className="text-[10px] text-[#ba1a1a] font-semibold">Action required</span>
                       )}
@@ -654,7 +654,7 @@ export const RegisterPage: React.FC = () => {
                   {/* Phone */}
                   <div className="flex flex-col gap-1">
                     <label htmlFor="reg-phone" className="text-xs font-bold text-[#1c1c19] flex items-center justify-between">
-                      <span>Phone number <span className="text-[#ba1a1a]">* Required</span></span>
+                      <span>Phone number <span className="text-[#ba1a1a]">*</span></span>
                       {touched.phone && !isPhoneValid && (
                         <span className="text-[10px] text-[#ba1a1a] font-semibold">8 digits required</span>
                       )}
@@ -707,7 +707,7 @@ export const RegisterPage: React.FC = () => {
                 {/* 6. Verification Channel Radio (SMS default vs Email) */}
                 <fieldset className="flex flex-col gap-1.5 pt-1">
                   <legend className="text-xs font-bold text-[#1c1c19]">
-                    Account verification channel <span className="text-[#ba1a1a]">* Required</span>
+                    Account verification channel <span className="text-[#ba1a1a]">*</span>
                   </legend>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" role="radiogroup">
                     <label
@@ -763,7 +763,7 @@ export const RegisterPage: React.FC = () => {
                 <div className="flex flex-col gap-3 pt-1">
                   <div className="flex flex-col gap-1">
                     <label htmlFor="reg-pwd" className="text-xs font-bold text-[#1c1c19] flex items-center justify-between">
-                      <span>Password <span className="text-[#ba1a1a]">* Required</span></span>
+                      <span>Password <span className="text-[#ba1a1a]">*</span></span>
                       <span className="text-[11px] text-[#77574e]">Minimum 10 characters</span>
                     </label>
                     <div className="relative">
@@ -882,7 +882,7 @@ export const RegisterPage: React.FC = () => {
                   {/* Confirm Password */}
                   <div className="flex flex-col gap-1">
                     <label htmlFor="reg-confirm-pwd" className="text-xs font-bold text-[#1c1c19] flex items-center justify-between">
-                      <span>Confirm password <span className="text-[#ba1a1a]">* Required</span></span>
+                      <span>Confirm password <span className="text-[#ba1a1a]">*</span></span>
                       {touched.confirmPassword && (
                         <span
                           className={`text-[11px] font-semibold ${
@@ -953,7 +953,7 @@ export const RegisterPage: React.FC = () => {
                     <strong className="text-[#1c1c19]">
                       Data Protection Act, 2024 (Act No. 32 of 2018)
                     </strong>{' '}
-                    <span className="text-[#ba1a1a] font-bold">* Required</span>.
+                    <span className="text-[#ba1a1a] font-bold">*</span>.
                   </label>
                 </div>
 

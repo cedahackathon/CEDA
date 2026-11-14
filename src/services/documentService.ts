@@ -14,18 +14,25 @@ import {
 } from 'firebase/firestore';
 import { auth, db, firebaseConfig } from '../config/firebase';
 import {
-  ACCEPTED_DOCUMENT_EXTENSIONS,
-  ACCEPTED_DOCUMENT_MIME_TYPES,
+  DOCUMENT_ACCEPTED_EXTENSIONS,
+  DOCUMENT_ACCEPTED_MIME_TYPES,
   DocumentSlotKey,
-  MAX_DOCUMENT_SIZE_BYTES,
+  DOCUMENT_MAX_FILE_SIZE_BYTES,
 } from '../data/documentOptions';
 import {
-  getSupabaseConfigError,
   isSupabaseConfigured,
   supabase,
   SUPABASE_DOCUMENTS_BUCKET,
 } from '../lib/supabase';
-import { WizardDocumentFile } from './submitterService';
+import { IdeaDocumentFile } from './submitterService';
+
+export type WizardDocumentFile = IdeaDocumentFile & {
+  firestoreDocId?: string;
+};
+
+function getSupabaseConfigError(): string {
+  return 'Supabase Storage is not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your environment.';
+}
 
 export interface UploadDocumentParams {
   file: File;
@@ -79,16 +86,16 @@ export function validateDocumentFile(
   file: File,
   existingFilesInSlot: WizardDocumentFile[]
 ): string | null {
-  if (file.size > MAX_DOCUMENT_SIZE_BYTES) {
+  if (file.size > DOCUMENT_MAX_FILE_SIZE_BYTES) {
     return 'File is larger than 10 MB';
   }
 
   const lowerName = file.name.toLowerCase();
-  const hasValidExt = ACCEPTED_DOCUMENT_EXTENSIONS.some((ext) => lowerName.endsWith(ext));
+  const hasValidExt = DOCUMENT_ACCEPTED_EXTENSIONS.some((ext: string) => lowerName.endsWith(ext));
   const normalizedMime = (file.type || '').toLowerCase();
   const hasValidMime =
     !normalizedMime ||
-    (ACCEPTED_DOCUMENT_MIME_TYPES as readonly string[]).includes(normalizedMime);
+    (DOCUMENT_ACCEPTED_MIME_TYPES as readonly string[]).includes(normalizedMime);
 
   if (!hasValidExt || !hasValidMime) {
     return 'Only PDF, DOCX, JPG or PNG';
@@ -123,11 +130,11 @@ export async function uploadSubmissionDocument({
   signal,
   onProgress,
 }: UploadDocumentParams): Promise<WizardDocumentFile> {
-  if (file.size > MAX_DOCUMENT_SIZE_BYTES) {
+  if (file.size > DOCUMENT_MAX_FILE_SIZE_BYTES) {
     throw new Error('File is larger than 10 MB');
   }
 
-  if (!isSupabaseConfigured() || !supabase) {
+  if (!isSupabaseConfigured || !supabase) {
     throw new Error(getSupabaseConfigError());
   }
 
@@ -219,6 +226,8 @@ export async function uploadSubmissionDocument({
   onProgress?.(100);
 
   const result: WizardDocumentFile = {
+    fileId: firestoreDocRef.id,
+    documentId: firestoreDocRef.id,
     name: file.name,
     size: file.size,
     contentType,
@@ -238,7 +247,7 @@ export async function deleteSubmissionDocument({
   userId,
   docType,
 }: DeleteDocumentParams): Promise<void> {
-  if (!isSupabaseConfigured() || !supabase) {
+  if (!isSupabaseConfigured || !supabase) {
     throw new Error(getSupabaseConfigError());
   }
 

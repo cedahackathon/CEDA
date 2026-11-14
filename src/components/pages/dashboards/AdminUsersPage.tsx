@@ -1781,6 +1781,7 @@ export const AdminUsersPage: React.FC = () => {
                     type="text"
                     value={addFirstName}
                     onChange={(e) => setAddFirstName(e.target.value)}
+                    placeholder="e.g. Kagiso"
                     className="w-full h-10 px-3 rounded-lg bg-[#fdf9f4] focus:bg-white border border-[#e2bfb8] focus:border-[#a02010] text-xs font-medium text-[#1c1c19]"
                   />
                   {addErrors.firstName && (
@@ -1797,6 +1798,7 @@ export const AdminUsersPage: React.FC = () => {
                     type="text"
                     value={addSurname}
                     onChange={(e) => setAddSurname(e.target.value)}
+                    placeholder="e.g. Molefe"
                     className="w-full h-10 px-3 rounded-lg bg-[#fdf9f4] focus:bg-white border border-[#e2bfb8] focus:border-[#a02010] text-xs font-medium text-[#1c1c19]"
                   />
                   {addErrors.surname && (
@@ -2026,6 +2028,7 @@ export const AdminUsersPage: React.FC = () => {
                   type="text"
                   value={editOrganisation}
                   onChange={(e) => setEditOrganisation(e.target.value)}
+                  placeholder="e.g. CEDA / BDIH / Enterprise name"
                   className="w-full h-10 px-3 rounded-lg bg-[#fdf9f4] focus:bg-white border border-[#e2bfb8] focus:border-[#a02010] text-xs font-medium text-[#1c1c19]"
                 />
               </div>

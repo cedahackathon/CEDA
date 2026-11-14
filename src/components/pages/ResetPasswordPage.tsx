@@ -20,7 +20,7 @@ export const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({ initialTok
   const [token, setToken] = useState<string>(() => {
     if (initialToken) return initialToken;
     const urlParams = new URLSearchParams(window.location.search);
-    return urlParams.get('oobCode') || urlParams.get('token') || 'demo-valid-token';
+    return urlParams.get('oobCode') || urlParams.get('token') || '';
   });
 
   const [newPassword, setNewPassword] = useState('');
@@ -301,7 +301,7 @@ export const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({ initialTok
                       htmlFor="newPassword"
                       className="block text-xs font-semibold text-[#31302d]"
                     >
-                      New password <span className="text-red-600 font-normal">Required</span>
+                      New password <span className="text-[#ba1a1a]">*</span>
                     </label>
                     <span className="text-[11px] text-[#5e4038] font-medium">
                       Min. 10 characters
@@ -458,7 +458,7 @@ export const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({ initialTok
                       htmlFor="confirmPassword"
                       className="block text-xs font-semibold text-[#31302d]"
                     >
-                      Confirm new password <span className="text-red-600 font-normal">Required</span>
+                      Confirm new password <span className="text-[#ba1a1a]">*</span>
                     </label>
                     {isMatching && (
                       <span className="text-[11px] text-green-700 font-semibold flex items-center gap-0.5">
