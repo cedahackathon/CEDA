@@ -80,12 +80,12 @@ export const ChatMessaging: React.FC<ChatMessagingProps> = ({ sessionId, onClose
   };
 
   return (
-    <div className="flex flex-col h-full bg-white rounded-xl overflow-hidden border border-[#e2bfb8] shadow-lg">
+    <div className="flex flex-col h-full bg-white overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 bg-[#38231d] text-white">
         <div className="flex items-center gap-2">
           <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="font-headline text-sm font-bold tracking-tight">CEDA Live Support Desk</span>
+          <span className="font-headline text-xs font-bold tracking-tight">CEDA Live Support Desk</span>
         </div>
         {onClose && (
           <button
