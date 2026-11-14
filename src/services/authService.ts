@@ -15,17 +15,21 @@ import {
   PhoneAuthProvider,
   linkWithCredential,
   ConfirmationResult,
+  User,
 } from 'firebase/auth';
 import {
   doc,
   setDoc,
+  updateDoc,
   getDoc,
   collection,
   query,
   where,
   getDocs,
+  serverTimestamp,
 } from 'firebase/firestore';
 import { auth, db, firebaseConfig } from '../config/firebase';
+import { LEGAL } from '../config/legal';
 import {
   UserProfile,
   UserSession,
@@ -52,6 +56,7 @@ const STORAGE_FIREBASE_PROJECT_KEY = 'ceda_portal_firebase_project_v1';
 
 const SEED_PASSWORD = 'Ceda#2026Demo';
 const SEED_HASH = hashPassword(SEED_PASSWORD);
+const ENABLE_SMS_VERIFICATION = import.meta.env.VITE_ENABLE_SMS_VERIFICATION === 'true';
 
 // Global or memory references for active OTP sessions
 let appRecaptchaVerifier: RecaptchaVerifier | null = null;
@@ -188,9 +193,46 @@ class AuthService {
   private users: Map<string, UserProfile> = new Map();
   private sessions: UserSession[] = [];
   private currentSessionId: string | null = null;
+  private pendingDemoResetUserId: string | null = null;
 
   constructor() {
     this.loadFromStorage();
+  }
+
+  private isSeedAccount(user: UserProfile | undefined): boolean {
+    if (!user) return false;
+    if (user.id === 'user-super-admin') return true;
+    const emailLower = (user.email || '').trim().toLowerCase();
+    return DEFAULT_SEED_USERS.some(
+      (seed) => seed.id === user.id || (emailLower && seed.email.toLowerCase() === emailLower)
+    );
+  }
+
+  private findSeedUserByIdentifier(identifier: string): UserProfile | undefined {
+    const clean = (identifier || '').trim().toLowerCase();
+    if (!clean) return undefined;
+    const rawDigits = clean.replace(/[\s\-+()]/g, '');
+    const cleanPhoneInput =
+      rawDigits.startsWith('267') && rawDigits.length >= 11 ? rawDigits.slice(3) : rawDigits;
+
+    const candidates: UserProfile[] = [
+      ...Array.from(this.users.values()).filter((u) => this.isSeedAccount(u)),
+      ...DEFAULT_SEED_USERS,
+    ];
+
+    for (const seed of candidates) {
+      const seedEmail = (seed.email || '').trim().toLowerCase();
+      const seedPhone = (seed.phone || '').replace(/[\s\-+()]/g, '');
+      const seedOmang = (seed.omangOrPassport || '').trim().toLowerCase();
+      if (
+        (seedEmail && seedEmail === clean) ||
+        (seedPhone && cleanPhoneInput && seedPhone === cleanPhoneInput) ||
+        (seedOmang && seedOmang === clean)
+      ) {
+        return this.users.get(seed.id) || seed;
+      }
+    }
+    return undefined;
   }
 
   private async loadFromStorage() {
@@ -397,42 +439,51 @@ class AuthService {
 
     const email = payload.email.trim();
     const password = payload.password;
-    const cleanPhone = payload.phone.replace(/[\s\-\+]/g, '');
-    const fullPhoneNumber = `+267${cleanPhone}`;
+    const cleanPhone = (payload.phone || '').replace(/[\s\-\+]/g, '');
+    const fullPhoneNumber = cleanPhone ? `+267${cleanPhone}` : '';
+    const verificationChannel = ENABLE_SMS_VERIFICATION ? payload.verificationChannel : 'email';
     const newId = `user-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
 
     let firebaseUid = newId;
     let isEmailVerificationSent = false;
     let verificationId: string | undefined = undefined;
+    let verificationWarning: string | undefined = undefined;
+    let createdAuthUser: User | null = null;
 
     // 1. Create account in Firebase Authentication with Email & Password
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      createdAuthUser = userCredential.user;
       firebaseUid = userCredential.user.uid;
 
-      // 2a. If Email OTP / Verification requested, trigger Firebase sendEmailVerification
-      if (payload.verificationChannel === 'email') {
+      // 2a. If Email verification requested, trigger Firebase sendEmailVerification
+      if (verificationChannel === 'email') {
+        const actionCodeSettings = {
+          url: `${window.location.origin}/otp-verification?target=${encodeURIComponent(email)}&channel=email`,
+        };
         try {
-          // ActionCodeSettings to allow users clicking the email link to redirect smoothly back to the app
-          const actionCodeSettings = {
-            url: `${window.location.origin}/otp-verification?target=${encodeURIComponent(email)}&channel=email`,
-            handleCodeInApp: true,
-          };
-          try {
-            await sendEmailVerification(userCredential.user, actionCodeSettings);
-          } catch (actionErr: any) {
-            console.warn('sendEmailVerification with actionCodeSettings note (falling back to standard call):', actionErr?.message);
-            // Fallback to standard verification if origin is not yet in Authorized Domains
-            await sendEmailVerification(userCredential.user);
-          }
+          await sendEmailVerification(userCredential.user, actionCodeSettings);
           isEmailVerificationSent = true;
           console.info('Firebase verification email dispatched successfully to:', email);
-        } catch (emailErr: any) {
-          console.error('Firebase sendEmailVerification error:', emailErr);
-          if (emailErr?.code === 'auth/too-many-requests') {
-            console.warn('Firebase email quota or rate limit exceeded.');
-          } else if (emailErr?.code) {
-            console.warn(`Firebase email error code: ${emailErr.code} - ${emailErr.message}`);
+        } catch (actionErr: any) {
+          console.error(
+            'Firebase sendEmailVerification with actionCodeSettings failed:',
+            actionErr?.code || 'unknown',
+            actionErr
+          );
+          try {
+            await sendEmailVerification(userCredential.user);
+            isEmailVerificationSent = true;
+            verificationWarning =
+              'Verification email sent, but the verification link may not redirect back to the app. After clicking the link in your email, return to this page to finish activating your account.';
+          } catch (emailErr: any) {
+            console.error(
+              'Firebase fallback sendEmailVerification failed:',
+              emailErr?.code || 'unknown',
+              emailErr
+            );
+            verificationWarning =
+              'Your account was created, but we could not send the verification email. Please try resending it on the next screen.';
           }
         }
       }
@@ -458,8 +509,8 @@ class AuthService {
       }
     }
 
-    // 2b. If SMS channel requested, trigger Firebase Phone Auth with reCAPTCHA
-    if (payload.verificationChannel === 'sms') {
+    // 2b. If SMS channel requested and enabled via VITE_ENABLE_SMS_VERIFICATION, trigger Firebase Phone Auth with reCAPTCHA
+    if (ENABLE_SMS_VERIFICATION && verificationChannel === 'sms' && fullPhoneNumber) {
       try {
         const verifier = this.getRecaptchaVerifier('recaptcha-container');
         if (verifier) {
@@ -472,10 +523,11 @@ class AuthService {
       }
     }
 
+    const nowIso = new Date().toISOString();
     const newUser: UserProfile = {
       id: firebaseUid,
       email,
-      phone: payload.phone,
+      phone: cleanPhone,
       firstName: payload.firstName,
       surname: payload.surname,
       fullName: `${payload.firstName} ${payload.surname}`,
@@ -486,57 +538,218 @@ class AuthService {
       accountType: payload.accountType,
       role: 'SUBMITTER', // New registrations are always SUBMITTER
       status: 'PENDING',
-      verificationChannel: payload.verificationChannel,
+      verificationChannel,
       emailVerified: false,
       phoneVerified: false,
-      passwordHash: hashPassword(password),
-      previousPasswordHashes: [],
-      tradingName: payload.tradingName,
-      cipaNumber: payload.cipaNumber,
-      bursTin: payload.bursTin,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      consent: {
+        termsVersion: LEGAL.termsVersion,
+        privacyVersion: LEGAL.privacyVersion,
+        acceptedAt: nowIso,
+        method: 'registration',
+      },
+      ...(payload.tradingName !== undefined ? { tradingName: payload.tradingName } : {}),
+      ...(payload.cipaNumber !== undefined ? { cipaNumber: payload.cipaNumber } : {}),
+      ...(payload.bursTin !== undefined ? { bursTin: payload.bursTin } : {}),
+      createdAt: nowIso,
+      updatedAt: nowIso,
       failedLoginAttempts: 0,
       lockoutUntil: null,
     };
 
+    const firestoreUserDoc = {
+      ...Object.fromEntries(Object.entries(newUser).filter(([, value]) => value !== undefined)),
+      consent: {
+        termsVersion: LEGAL.termsVersion,
+        privacyVersion: LEGAL.privacyVersion,
+        acceptedAt: serverTimestamp(),
+        method: 'registration',
+      },
+    };
+
     // Save user profile to Firestore
     try {
-      await setDoc(doc(db, 'users', firebaseUid), newUser);
+      await setDoc(doc(db, 'users', firebaseUid), firestoreUserDoc);
     } catch (err) {
-      console.warn('Firestore user doc write note:', err);
+      console.error('Failed to save user profile to Firestore:', err);
+      if (createdAuthUser) {
+        try {
+          await createdAuthUser.delete();
+        } catch (cleanupErr) {
+          console.error(
+            'Failed to clean up Firebase Auth user after Firestore profile write failure:',
+            cleanupErr
+          );
+        }
+      }
+      throw new Error(
+        'We could not complete your registration because saving your profile failed. Please try again.'
+      );
     }
 
     this.users.set(firebaseUid, newUser);
     this.saveUsers();
 
-    const demoOtpCode = '582491';
+    const demoOtpEnabled = import.meta.env.VITE_ENABLE_DEMO_OTP === 'true';
+    const demoOtpCode =
+      ENABLE_SMS_VERIFICATION && verificationChannel === 'sms' && demoOtpEnabled ? '582491' : '';
 
     return {
       success: true,
       userId: firebaseUid,
-      identifier: payload.verificationChannel === 'sms' ? payload.phone : email,
-      channel: payload.verificationChannel,
-      message: `Account created in pending state. 6-digit code dispatched via ${payload.verificationChannel.toUpperCase()}.`,
+      identifier: verificationChannel === 'sms' ? cleanPhone : email,
+      channel: verificationChannel,
+      message:
+        verificationChannel === 'email'
+          ? 'Account created in pending state. Verification email dispatched.'
+          : `Account created in pending state. 6-digit code dispatched via ${verificationChannel.toUpperCase()}.`,
       nextStep: 'otp_verification',
       demoOtpCode,
       verificationId,
       isEmailVerificationSent,
+      verificationWarning,
     };
   }
 
   /**
-   * 3. OTP VERIFICATION (Real Firebase ConfirmationResult + Email/Phone check)
+   * 3. OTP / EMAIL VERIFICATION (Real Firebase Verification + Firestore Activation)
    */
   public async verifyOtp(payload: VerifyOtpRequest): Promise<VerifyOtpResponse> {
     await simulateLatency(300);
-    const user = this.findUserByIdentifier(payload.identifier);
 
-    const isDemoCode = payload.otpCode === '582491';
+    if (payload.channel === 'email') {
+      if (auth && typeof auth.authStateReady === 'function') {
+        await auth.authStateReady();
+      }
+      const currentUser = auth?.currentUser;
+      if (!currentUser) {
+        return {
+          success: false,
+          accountActivated: false,
+          message: 'Please sign in again, then open the verification link.',
+        };
+      }
+
+      try {
+        await currentUser.reload();
+      } catch (reloadErr) {
+        console.error('Failed to reload Firebase user during email verification:', reloadErr);
+        return {
+          success: false,
+          accountActivated: false,
+          message: 'Could not verify your email status right now. Please try again.',
+        };
+      }
+
+      if (!currentUser.emailVerified) {
+        return {
+          success: false,
+          accountActivated: false,
+          message: 'Your email is not verified yet. Click the link in the email first.',
+        };
+      }
+
+      try {
+        await currentUser.getIdToken(true);
+      } catch (tokenErr) {
+        console.error('Failed to refresh Firebase ID token after email verification:', tokenErr);
+        return {
+          success: false,
+          accountActivated: false,
+          message: 'Your email is verified, but we could not activate your account. Please try again.',
+        };
+      }
+
+      const updatedAt = new Date().toISOString();
+      try {
+        await updateDoc(doc(db, 'users', currentUser.uid), {
+          status: 'ACTIVE',
+          emailVerified: true,
+          updatedAt,
+        });
+      } catch (err) {
+        console.error('Failed to activate user account in Firestore:', err);
+        return {
+          success: false,
+          accountActivated: false,
+          message: 'Your email is verified, but we could not activate your account. Please try again.',
+        };
+      }
+
+      let existingUser =
+        this.users.get(currentUser.uid) ||
+        this.findUserByIdentifier(currentUser.email || payload.identifier);
+
+      if (!existingUser) {
+        try {
+          const snap = await getDoc(doc(db, 'users', currentUser.uid));
+          if (snap.exists()) {
+            existingUser = {
+              ...(snap.data() as unknown as UserProfile),
+              id: currentUser.uid,
+            };
+          }
+        } catch (fetchErr) {
+          console.error('Failed to fetch activated user profile from Firestore:', fetchErr);
+        }
+      }
+
+      const activatedUser: UserProfile = existingUser
+        ? {
+            ...existingUser,
+            id: currentUser.uid,
+            status: 'ACTIVE',
+            emailVerified: true,
+            updatedAt,
+          }
+        : {
+            id: currentUser.uid,
+            email: currentUser.email || payload.identifier,
+            phone: '',
+            firstName: currentUser.displayName?.split(' ')[0] || 'Portal',
+            surname: currentUser.displayName?.split(' ').slice(1).join(' ') || 'User',
+            fullName: currentUser.displayName || currentUser.email || 'Portal User',
+            omangOrPassport: '',
+            dob: '',
+            district: '',
+            town: '',
+            accountType: 'individual',
+            role: 'SUBMITTER',
+            status: 'ACTIVE',
+            verificationChannel: 'email',
+            emailVerified: true,
+            phoneVerified: false,
+            createdAt: updatedAt,
+            updatedAt,
+            failedLoginAttempts: 0,
+            lockoutUntil: null,
+          };
+
+      this.users.set(activatedUser.id, activatedUser);
+      this.saveUsers();
+
+      return {
+        success: true,
+        accountActivated: true,
+        user: activatedUser,
+        message: 'Account successfully verified and activated.',
+      };
+    }
+
+    // SMS channel verification (disabled unless VITE_ENABLE_SMS_VERIFICATION === 'true')
+    if (!ENABLE_SMS_VERIFICATION) {
+      return {
+        success: false,
+        accountActivated: false,
+        message: 'SMS verification is currently disabled. Please verify your account using your email link.',
+      };
+    }
+
+    const user = this.findUserByIdentifier(payload.identifier);
+    const demoOtpEnabled = import.meta.env.VITE_ENABLE_DEMO_OTP === 'true';
+    const isDemoCode = demoOtpEnabled && payload.otpCode === '582491';
     let firebaseVerified = false;
 
-    // Check if we have an active Firebase Phone ConfirmationResult
-    if (activeConfirmationResult && payload.channel === 'sms' && !isDemoCode) {
+    if (activeConfirmationResult && !isDemoCode) {
       try {
         const userCredential = await activeConfirmationResult.confirm(payload.otpCode);
         if (userCredential.user) {
@@ -547,20 +760,7 @@ class AuthService {
       }
     }
 
-    // Check if currentUser in Firebase has verified their email via the verification link
-    if (payload.channel === 'email' && auth.currentUser) {
-      try {
-        await auth.currentUser.reload();
-        if (auth.currentUser.emailVerified) {
-          firebaseVerified = true;
-        }
-      } catch {
-        // ignore reload error
-      }
-    }
-
-    // Allow verification if either Firebase confirmed, demo code matched, or valid 6-digit entered
-    const isCodeAccepted = firebaseVerified || isDemoCode || (payload.otpCode.length === 6 && payload.otpCode !== '903712');
+    const isCodeAccepted = firebaseVerified || isDemoCode;
 
     if (!isCodeAccepted) {
       return {
@@ -579,43 +779,61 @@ class AuthService {
       };
     }
 
-    user.status = 'ACTIVE';
-    if (payload.channel === 'email') {
-      user.emailVerified = true;
-    } else {
-      user.phoneVerified = true;
-    }
-    this.users.set(user.id, user);
-    this.saveUsers();
-
+    const updatedAt = new Date().toISOString();
     try {
-      await setDoc(
-        doc(db, 'users', user.id),
-        {
-          status: 'ACTIVE',
-          emailVerified: user.emailVerified,
-          phoneVerified: user.phoneVerified,
-          updatedAt: new Date().toISOString(),
-        },
-        { merge: true }
-      );
-    } catch {
-      // ignore
+      await updateDoc(doc(db, 'users', user.id), {
+        status: 'ACTIVE',
+        phoneVerified: true,
+        updatedAt,
+      });
+    } catch (err) {
+      console.error('Failed to activate SMS user account in Firestore:', err);
+      return {
+        success: false,
+        accountActivated: false,
+        message: 'Your phone is verified, but we could not activate your account. Please try again.',
+      };
     }
+
+    const activatedUser: UserProfile = {
+      ...user,
+      status: 'ACTIVE',
+      phoneVerified: true,
+      updatedAt,
+    };
+    this.users.set(activatedUser.id, activatedUser);
+    this.saveUsers();
 
     return {
       success: true,
       accountActivated: true,
-      user,
+      user: activatedUser,
       message: 'Account successfully verified and activated.',
     };
   }
 
-  public async resendOtp(identifier: string, channel: 'sms' | 'email') {
+  public async resendOtp(
+    identifier: string,
+    channel: 'sms' | 'email'
+  ): Promise<{
+    success: boolean;
+    message: string;
+    cooldownSeconds: number;
+    warning?: string;
+    demoCode?: string;
+  }> {
     await simulateLatency(300);
 
-    // If channel is SMS, re-trigger Firebase phone auth
+    // If channel is SMS, re-trigger Firebase phone auth (disabled unless VITE_ENABLE_SMS_VERIFICATION === 'true')
     if (channel === 'sms') {
+      if (!ENABLE_SMS_VERIFICATION) {
+        return {
+          success: false,
+          message: 'SMS verification is currently disabled. Please verify your account using your email link.',
+          cooldownSeconds: 0,
+        };
+      }
+
       try {
         const cleanPhone = identifier.replace(/[\s\-\+]/g, '');
         const fullPhoneNumber = identifier.startsWith('+') ? identifier : `+267${cleanPhone}`;
@@ -627,40 +845,85 @@ class AuthService {
       } catch (err) {
         console.warn('Firebase resend Phone Auth note:', err);
       }
+
+      const demoOtpEnabled = import.meta.env.VITE_ENABLE_DEMO_OTP === 'true';
+      return {
+        success: true,
+        message: 'New verification code dispatched via SMS.',
+        cooldownSeconds: 30,
+        ...(demoOtpEnabled ? { demoCode: '582491' } : {}),
+      };
     }
 
-    // If channel is email, send verification email
-    if (channel === 'email') {
+    // Channel is email: send verification email
+    if (auth && typeof auth.authStateReady === 'function') {
+      await auth.authStateReady();
+    }
+    const user = auth?.currentUser;
+    if (!user) {
+      return {
+        success: false,
+        message: 'Please sign in again before requesting another verification email.',
+        cooldownSeconds: 0,
+      };
+    }
+
+    const targetEmail = user.email || identifier;
+    const actionCodeSettings = {
+      url: `${window.location.origin}/otp-verification?target=${encodeURIComponent(targetEmail)}&channel=email`,
+    };
+
+    try {
+      await sendEmailVerification(user, actionCodeSettings);
+      console.info('Firebase verification email re-sent successfully to:', user.email);
+      return {
+        success: true,
+        message: 'Verification email sent. Please check your inbox and click the link.',
+        cooldownSeconds: 30,
+      };
+    } catch (err: any) {
+      console.error(
+        'Firebase resendEmailVerification with actionCodeSettings failed:',
+        err?.code || 'unknown',
+        err
+      );
+      if (err?.code === 'auth/too-many-requests') {
+        return {
+          success: false,
+          message: 'Too many requests. Please wait a few moments before requesting another verification email.',
+          cooldownSeconds: 60,
+        };
+      }
+
       try {
-        const user = auth.currentUser;
-        if (user) {
-          const actionCodeSettings = {
-            url: `${window.location.origin}/otp-verification?target=${encodeURIComponent(identifier)}&channel=email`,
-            handleCodeInApp: true,
-          };
-          await sendEmailVerification(user, actionCodeSettings);
-          console.info('Firebase verification email re-sent successfully to:', user.email);
-        } else {
-          console.warn('Firebase currentUser is null when requesting email resend. User may need to sign in.');
-        }
-      } catch (err: any) {
-        console.error('Firebase resend email verification error:', err);
-        if (err?.code === 'auth/too-many-requests') {
+        await sendEmailVerification(user);
+        return {
+          success: true,
+          message: 'Verification email dispatched.',
+          warning:
+            'Verification email sent, but the verification link may not redirect back to the app. After clicking the link in your email, return to this page to finish activating your account.',
+          cooldownSeconds: 30,
+        };
+      } catch (fallbackErr: any) {
+        console.error(
+          'Firebase fallback resendEmailVerification failed:',
+          fallbackErr?.code || 'unknown',
+          fallbackErr
+        );
+        if (fallbackErr?.code === 'auth/too-many-requests') {
           return {
             success: false,
             message: 'Too many requests. Please wait a few moments before requesting another verification email.',
             cooldownSeconds: 60,
           };
         }
+        return {
+          success: false,
+          message: 'Could not send verification email. Please try again in a moment.',
+          cooldownSeconds: 30,
+        };
       }
     }
-
-    return {
-      success: true,
-      message: `New verification code dispatched via ${channel.toUpperCase()}.`,
-      cooldownSeconds: 30,
-      demoCode: '582491',
-    };
   }
 
   /**
@@ -668,6 +931,13 @@ class AuthService {
   */
   public async login(payload: LoginRequest): Promise<LoginResponse> {
     await simulateLatency(400);
+
+    if (payload.method === 'otp' || payload.method === 'biometric') {
+      return {
+        success: false,
+        message: 'Please sign in with your email and password.',
+      };
+    }
 
     const identifier = payload.identifier.trim();
     const GENERIC_FAILURE = 'Email, phone or password incorrect';
@@ -686,6 +956,39 @@ class AuthService {
         const docRef = await getDoc(doc(db, 'users', uid));
         if (docRef.exists()) {
           const rawData = docRef.data() as Record<string, unknown>;
+          const rawStatusUpper = String(rawData.status || '').trim().toUpperCase();
+          const rawEmailVerified = Boolean(rawData.emailVerified);
+
+          const isSuspendedOrLocked =
+            rawStatusUpper === 'SUSPENDED' ||
+            rawStatusUpper === 'DEACTIVATED' ||
+            rawStatusUpper === 'LOCKED';
+          const needsActivation = rawStatusUpper === 'PENDING';
+          const needsEmailFlagSync = !rawEmailVerified && !isSuspendedOrLocked;
+
+          if (cred.user.emailVerified && (needsActivation || needsEmailFlagSync)) {
+            const syncUpdatedAt = new Date().toISOString();
+            const syncPayload: Record<string, unknown> = {
+              emailVerified: true,
+              updatedAt: syncUpdatedAt,
+              ...(needsActivation ? { status: 'ACTIVE' } : {}),
+            };
+            try {
+              await cred.user.getIdToken(true);
+              await updateDoc(doc(db, 'users', uid), syncPayload);
+              if (needsActivation) {
+                rawData.status = 'ACTIVE';
+              }
+              rawData.emailVerified = true;
+              rawData.updatedAt = syncUpdatedAt;
+            } catch (syncErr) {
+              console.error(
+                'Failed to sync email verification / activation status to Firestore on login:',
+                syncErr
+              );
+            }
+          }
+
           const rawRole = String(rawData.role || 'SUBMITTER').trim().toUpperCase();
           const normalizedRole: UserRole =
             rawRole === 'ADMINISTRATOR' || rawRole === 'SUPER_ADMIN'
@@ -876,8 +1179,38 @@ class AuthService {
   public async requestReset(payload: RequestResetRequest): Promise<RequestResetResponse> {
     const rawIdentifier = payload.identifier.trim();
     if (!rawIdentifier) {
-      throw new Error('Please enter your registered email address or mobile number.');
+      throw new Error('Please enter your registered email address.');
     }
+
+    const matchedSeed = this.findSeedUserByIdentifier(rawIdentifier);
+    if (matchedSeed) {
+      this.pendingDemoResetUserId = matchedSeed.id;
+      const seedEmail = matchedSeed.email;
+      if (payload.channel === 'email' && auth && !firebaseConfig.apiKey.includes('MockKey') && seedEmail) {
+        try {
+          auth.languageCode = 'en';
+          await sendPasswordResetEmail(auth, seedEmail);
+        } catch (err: unknown) {
+          const code = (err as { code?: string })?.code || '';
+          if (code !== 'auth/user-not-found') {
+            console.warn('Seed account sendPasswordResetEmail note:', code || err);
+          }
+        }
+      } else {
+        await simulateLatency(300);
+      }
+
+      return {
+        success: true,
+        message: 'If an account exists, instructions have been sent.',
+        deliveryChannel: payload.channel,
+        resendCooldownSeconds: 45,
+        demoToken: 'demo-valid-token',
+        demoCode: '492815',
+      };
+    }
+
+    this.pendingDemoResetUserId = null;
 
     let resolvedEmail = rawIdentifier.includes('@') ? rawIdentifier : '';
     if (!resolvedEmail) {
@@ -902,57 +1235,51 @@ class AuthService {
       }
     }
 
-    if (payload.channel === 'email') {
-      if (!auth || firebaseConfig.apiKey.includes('MockKey')) {
-        throw new Error(
-          'Firebase Auth is not configured with live credentials. Check .env and restart the dev server.'
-        );
-      }
-      if (!resolvedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(resolvedEmail)) {
-        throw new Error(
-          'Please enter your registered email address so Firebase can dispatch the reset link.'
-        );
-      }
+    if (!auth || firebaseConfig.apiKey.includes('MockKey')) {
+      throw new Error(
+        'Firebase Auth is not configured with live credentials. Check .env and restart the dev server.'
+      );
+    }
+    if (!resolvedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(resolvedEmail)) {
+      throw new Error(
+        'Please enter your registered email address so Firebase can dispatch the reset link.'
+      );
+    }
 
-      try {
-        auth.languageCode = 'en';
-        await sendPasswordResetEmail(auth, resolvedEmail);
-      } catch (err: unknown) {
-        const code = (err as { code?: string })?.code || '';
-        if (code === 'auth/too-many-requests') {
-          throw new Error(
-            'Too many password reset requests. Please wait a few minutes and try again.'
-          );
-        }
-        if (code === 'auth/invalid-email') {
-          throw new Error('The email address entered is invalid.');
-        }
-        if (code === 'auth/network-request-failed') {
-          throw new Error(
-            'Network error while contacting Firebase Authentication. Check your connection and retry.'
-          );
-        }
-        if (code === 'auth/operation-not-allowed') {
-          throw new Error('Email/Password authentication is disabled in Firebase Console.');
-        }
-        if (code === 'auth/invalid-api-key') {
-          throw new Error('Invalid Firebase API key configuration.');
-        }
-        if (code !== 'auth/user-not-found') {
-          throw err instanceof Error ? err : new Error('Failed to dispatch password reset email.');
-        }
+    try {
+      auth.languageCode = 'en';
+      await sendPasswordResetEmail(auth, resolvedEmail);
+    } catch (err: unknown) {
+      const code = (err as { code?: string })?.code || '';
+      if (code === 'auth/too-many-requests') {
+        throw new Error(
+          'Too many password reset requests. Please wait a few minutes and try again.'
+        );
       }
-    } else {
-      await simulateLatency(300);
+      if (code === 'auth/invalid-email') {
+        throw new Error('The email address entered is invalid.');
+      }
+      if (code === 'auth/network-request-failed') {
+        throw new Error(
+          'Network error while contacting Firebase Authentication. Check your connection and retry.'
+        );
+      }
+      if (code === 'auth/operation-not-allowed') {
+        throw new Error('Email/Password authentication is disabled in Firebase Console.');
+      }
+      if (code === 'auth/invalid-api-key') {
+        throw new Error('Invalid Firebase API key configuration.');
+      }
+      if (code !== 'auth/user-not-found') {
+        throw err instanceof Error ? err : new Error('Failed to dispatch password reset email.');
+      }
     }
 
     return {
       success: true,
       message: 'If an account exists, instructions have been sent.',
-      deliveryChannel: payload.channel,
+      deliveryChannel: 'email',
       resendCooldownSeconds: 45,
-      demoToken: 'demo-valid-token',
-      demoCode: '492815',
     };
   }
 
@@ -969,47 +1296,69 @@ class AuthService {
     }
 
     const token = payload.tokenOrCode.trim();
-    if (token && token !== 'demo-valid-token' && auth) {
-      try {
-        await confirmPasswordReset(auth, token, payload.newPassword);
-        return {
-          success: true,
-          message: 'Password successfully updated in Firebase Authentication.',
-        };
-      } catch (err: unknown) {
-        const code = (err as { code?: string })?.code || '';
-        if (code === 'auth/expired-action-code' || code === 'auth/invalid-action-code') {
-          return {
-            success: false,
-            isTokenExpired: true,
-            message: 'This password reset link has expired or has already been used.',
-          };
-        }
+    if (token === 'demo-valid-token') {
+      await simulateLatency(400);
+      const pendingUser = this.pendingDemoResetUserId
+        ? this.users.get(this.pendingDemoResetUserId)
+        : undefined;
+      const targetSeed =
+        pendingUser && this.isSeedAccount(pendingUser)
+          ? pendingUser
+          : this.users.get(DEFAULT_SEED_USERS[0].id) || DEFAULT_SEED_USERS[0];
+
+      this.sessions = this.sessions.filter((s) => s.userId !== targetSeed.id);
+      this.saveSessions();
+      targetSeed.passwordHash = hashPassword(payload.newPassword);
+      targetSeed.updatedAt = new Date().toISOString();
+      this.users.set(targetSeed.id, targetSeed);
+      this.saveUsers();
+      this.pendingDemoResetUserId = null;
+
+      return {
+        success: true,
+        message:
+          'Seed/demo account password updated locally. All active sessions for this demo account have been terminated.',
+      };
+    }
+
+    if (!token) {
+      return {
+        success: false,
+        message:
+          'Missing password reset link code. Please use the reset link sent to your email address.',
+      };
+    }
+
+    if (!auth) {
+      return {
+        success: false,
+        message: 'Firebase Authentication is not initialized.',
+      };
+    }
+
+    try {
+      await confirmPasswordReset(auth, token, payload.newPassword);
+      return {
+        success: true,
+        message: 'Password successfully updated in Firebase Authentication.',
+      };
+    } catch (err: unknown) {
+      const code = (err as { code?: string })?.code || '';
+      if (code === 'auth/expired-action-code' || code === 'auth/invalid-action-code') {
         return {
           success: false,
-          message:
-            err instanceof Error
-              ? err.message
-              : 'Unable to update password with this reset code.',
+          isTokenExpired: true,
+          message: 'This password reset link has expired or has already been used.',
         };
       }
+      return {
+        success: false,
+        message:
+          err instanceof Error
+            ? err.message
+            : 'Unable to update password with this reset code.',
+      };
     }
-
-    await simulateLatency(400);
-    const user = Array.from(this.users.values())[0];
-    if (user) {
-      this.sessions = this.sessions.filter((s) => s.userId !== user.id);
-      this.saveSessions();
-      user.passwordHash = hashPassword(payload.newPassword);
-      user.updatedAt = new Date().toISOString();
-      this.users.set(user.id, user);
-      this.saveUsers();
-    }
-
-    return {
-      success: true,
-      message: 'Password successfully updated. All active sessions have been terminated.',
-    };
   }
 
   /**

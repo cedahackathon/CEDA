@@ -10,7 +10,7 @@ export const Footer: React.FC = () => {
   const { setCurrentRoute } = useAuth();
 
   return (
-    <footer className="w-full bg-[#31302d] text-[#f4f0eb] pt-12 pb-8 border-t border-[#8d706b]/30">
+    <footer className="print:hidden w-full bg-[#31302d] text-[#f4f0eb] pt-12 pb-8 border-t border-[#8d706b]/30">
       <div className="max-w-[1200px] mx-auto px-4 md:px-8">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 pb-12 border-b border-[#5a413c]/60">
           {/* Col 1: National Mandate & Motto */}
@@ -142,19 +142,27 @@ export const Footer: React.FC = () => {
         {/* Bottom Bar: Legal & BDPA Compliance */}
         <div className="pt-6 flex flex-col md:flex-row items-center justify-between gap-4 text-xs text-[#f4f0eb]/75">
           <div className="flex flex-wrap items-center gap-3">
-            <button
-              onClick={() => setCurrentRoute('/privacy-notice')}
+            <a
+              href="/privacy"
+              onClick={(e) => {
+                e.preventDefault();
+                setCurrentRoute('/privacy');
+              }}
               className="hover:text-white transition-colors"
             >
               Privacy Notice
-            </button>
+            </a>
             <span>•</span>
-            <button
-              onClick={() => setCurrentRoute('/terms-of-service')}
+            <a
+              href="/terms"
+              onClick={(e) => {
+                e.preventDefault();
+                setCurrentRoute('/terms');
+              }}
               className="hover:text-white transition-colors"
             >
               Terms of Service
-            </button>
+            </a>
             <span>•</span>
             <button
               onClick={() => setCurrentRoute('/disclaimer')}

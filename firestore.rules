@@ -59,7 +59,7 @@ service cloud.firestore {
         )
       );
 
-      // Only admins can change another user's role or status; owners can only activate their own PENDING profile
+      // Only admins can change another user's role or status; owners can only activate their own PENDING profile after email verification
       allow update: if isSignedIn() && (
         (isAdmin(database) && !isOwner(userId))
         || (
@@ -70,6 +70,7 @@ service cloud.firestore {
             || (
               resource.data.get('status', null) in ['PENDING', 'pending']
               && request.resource.data.get('status', null) == 'ACTIVE'
+              && request.auth.token.email_verified == true
             )
           )
         )

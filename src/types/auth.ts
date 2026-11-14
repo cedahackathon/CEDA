@@ -23,6 +23,13 @@ export interface UserSession {
   isCurrent: boolean;
 }
 
+export interface UserConsent {
+  termsVersion: string;
+  privacyVersion: string;
+  acceptedAt?: unknown;
+  method: string;
+}
+
 export interface UserProfile {
   id: string;
   email: string;
@@ -46,8 +53,9 @@ export interface UserProfile {
   verificationChannel: VerificationChannel;
   emailVerified: boolean;
   phoneVerified: boolean;
-  passwordHash: string;
-  previousPasswordHashes: string[];
+  consent?: UserConsent;
+  passwordHash?: string;
+  previousPasswordHashes?: string[];
   createdAt: string;
   updatedAt: string;
   createdBy?: string;
@@ -102,6 +110,7 @@ export interface RegisterResponse {
   demoOtpCode: string;
   verificationId?: string; // Firebase Phone Auth verificationId
   isEmailVerificationSent?: boolean; // Firebase Email verification sent flag
+  verificationWarning?: string;
 }
 
 export interface VerifyOtpRequest {

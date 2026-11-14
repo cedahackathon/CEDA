@@ -6,6 +6,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../../../context/AuthContext';
 import { AdminLayout } from '../../admin/AdminLayout';
+import { LegalUpdateBanner } from '../../common/LegalUpdateBanner';
 import {
   ADMIN_QUICK_ACTIONS,
   AdminDashboardData,
@@ -56,6 +57,7 @@ export const AdminDashboard: React.FC = () => {
       attentionItems={data.attentionItems}
     >
       <div className="flex flex-col gap-5">
+        <LegalUpdateBanner />
         {/* Breadcrumb */}
         <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs text-[#6b4f47]">
           <button

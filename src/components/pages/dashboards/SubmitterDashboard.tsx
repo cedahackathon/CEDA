@@ -7,6 +7,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../../context/AuthContext';
 import { auth } from '../../../config/firebase';
 import { SubmitterLayout } from '../../submitter/SubmitterLayout';
+import { LegalUpdateBanner } from '../../common/LegalUpdateBanner';
 import {
   DEFAULT_OPEN_CALL,
   isLiveChatAvailableNow,
@@ -218,6 +219,7 @@ export const SubmitterDashboard: React.FC = () => {
       onSearchChange={setSearchQuery}
     >
       <div className="flex flex-col gap-6">
+        <LegalUpdateBanner />
         {/* Greeting + Single Primary Submit CTA Row */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>

@@ -314,16 +314,18 @@ export const DemoRoleSwitcher: React.FC = () => {
                   <span className="text-[11px] font-bold text-[#7c0700] uppercase">
                     OTP Verification States
                   </span>
-                  <button
-                    onClick={() => {
-                      setCurrentRoute('/otp-verification?autofill=582491');
-                      setIsOpen(false);
-                    }}
-                    className="text-left text-xs px-2 py-1.5 bg-white hover:bg-emerald-50 text-emerald-800 rounded border border-emerald-200 flex items-center justify-between"
-                  >
-                    <span>✓ Simulate Valid OTP (582491)</span>
-                    <span className="text-[10px] font-bold">Success</span>
-                  </button>
+                  {import.meta.env.VITE_ENABLE_DEMO_OTP === 'true' && (
+                    <button
+                      onClick={() => {
+                        setCurrentRoute('/otp-verification?autofill=582491');
+                        setIsOpen(false);
+                      }}
+                      className="text-left text-xs px-2 py-1.5 bg-white hover:bg-emerald-50 text-emerald-800 rounded border border-emerald-200 flex items-center justify-between"
+                    >
+                      <span>✓ Simulate Valid OTP (582491)</span>
+                      <span className="text-[10px] font-bold">Success</span>
+                    </button>
+                  )}
 
                   <button
                     onClick={() => {

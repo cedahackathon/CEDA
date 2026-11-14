@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import confetti from 'canvas-confetti';
 import { useAuth } from '../../context/AuthContext';
+import { auth } from '../../config/firebase';
 import { authService } from '../../services/authService';
 import { VerificationChannel } from '../../types/auth';
 
@@ -23,11 +24,15 @@ export const OtpVerificationPage: React.FC = () => {
   const paramChannel = urlParams.get('channel') as VerificationChannel | null;
   const autofillCode = urlParams.get('autofill') || urlParams.get('code') || '';
   const initialVid = urlParams.get('vid') || '';
-  const isEmailSent = urlParams.get('emailSent') === 'true';
+  const initialWarning = urlParams.get('warning') || '';
   const simulateParam = urlParams.get('simulate') || '';
 
+  const smsEnabled = import.meta.env.VITE_ENABLE_SMS_VERIFICATION === 'true';
   // Determine initial channel & destination
-  const initialChannel: VerificationChannel = paramChannel || (latestUser?.verificationChannel) || 'sms';
+  const initialChannel: VerificationChannel =
+    smsEnabled
+      ? paramChannel || latestUser?.verificationChannel || 'email'
+      : 'email';
   const initialTarget: string = paramTarget || (initialChannel === 'email' ? latestUser?.email || 'innovator@ceda.co.bw' : (latestUser?.phone ? `+267 ${latestUser.phone}` : '+267 71 234 567'));
 
   // 6 discrete digits state
@@ -41,6 +46,8 @@ export const OtpVerificationPage: React.FC = () => {
   const [channel, setChannel] = useState<VerificationChannel>(initialChannel);
   const [destination, setDestination] = useState<string>(initialTarget);
   const [verificationId, setVerificationId] = useState<string>(initialVid);
+  const [warningMessage, setWarningMessage] = useState<string>(initialWarning);
+  const [needsSignInPrompt, setNeedsSignInPrompt] = useState<boolean>(false);
 
   // Sync state if currentRoute changes with new query params
   useEffect(() => {
@@ -50,8 +57,9 @@ export const OtpVerificationPage: React.FC = () => {
     const freshChannel = freshParams.get('channel') as VerificationChannel | null;
     const freshVid = freshParams.get('vid');
     const freshCode = freshParams.get('autofill') || freshParams.get('code');
+    const freshWarning = freshParams.get('warning');
 
-    if (freshChannel) {
+    if (freshChannel && (freshChannel === 'email' || smsEnabled)) {
       setChannel(freshChannel);
     }
     if (freshTarget) {
@@ -63,6 +71,9 @@ export const OtpVerificationPage: React.FC = () => {
     }
     if (freshVid) {
       setVerificationId(freshVid);
+    }
+    if (freshWarning !== null) {
+      setWarningMessage(freshWarning);
     }
     if (freshCode && freshCode.length === 6) {
       setDigits(freshCode.split(''));
@@ -84,6 +95,7 @@ export const OtpVerificationPage: React.FC = () => {
 
   // Input refs for keyboard navigation
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const hasCheckedAuthOnLoad = useRef<boolean>(false);
 
   // Handle URL simulate parameters if triggered from demo switcher
   useEffect(() => {
@@ -133,11 +145,53 @@ export const OtpVerificationPage: React.FC = () => {
     return () => clearInterval(timer);
   }, [status, lockoutCooldown]);
 
-  // Focus first empty box on mount
+  // Focus first empty box on mount (SMS only)
   useEffect(() => {
-    if (inputRefs.current[0] && digits[0] === '') {
+    if (channel === 'sms' && inputRefs.current[0] && digits[0] === '') {
       inputRefs.current[0].focus();
     }
+  }, [channel]);
+
+  // Wait for Firebase Auth restoration on load and auto-activate if email is already verified
+  useEffect(() => {
+    if (hasCheckedAuthOnLoad.current) return;
+    hasCheckedAuthOnLoad.current = true;
+
+    let cancelled = false;
+    const checkAuthAndAutoActivate = async () => {
+      try {
+        if (auth && typeof auth.authStateReady === 'function') {
+          await auth.authStateReady();
+        }
+        if (cancelled) return;
+
+        const currentUser = auth?.currentUser;
+        if (!currentUser) {
+          setNeedsSignInPrompt(true);
+          return;
+        }
+
+        setNeedsSignInPrompt(false);
+        await currentUser.reload();
+        if (cancelled) return;
+
+        if (currentUser.emailVerified) {
+          const emailTarget = currentUser.email || destination;
+          setChannel('email');
+          if (currentUser.email) {
+            setDestination(currentUser.email);
+          }
+          await verifyCode('', 'email', emailTarget);
+        }
+      } catch (err) {
+        console.error('Failed to check Firebase email verification state on load:', err);
+      }
+    };
+
+    void checkAuthAndAutoActivate();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Channel toggle
@@ -206,23 +260,34 @@ export const OtpVerificationPage: React.FC = () => {
   };
 
   // Verification logic
-  const verifyCode = async (codeToVerify: string) => {
+  const verifyCode = async (
+    codeToVerify: string,
+    channelOverride?: VerificationChannel,
+    identifierOverride?: string
+  ) => {
     if (status === 'locked') return;
+
+    const effectiveChannel = channelOverride ?? channel;
+    const effectiveIdentifier = identifierOverride ?? destination;
 
     setStatus('verifying');
     setStatusMessage('');
 
     try {
       const res = await authService.verifyOtp({
-        identifier: destination,
+        identifier: effectiveIdentifier,
         otpCode: codeToVerify,
-        channel,
+        channel: effectiveChannel,
         verificationId,
       });
 
       if (res.success && res.accountActivated) {
         setStatus('success');
-        setStatusMessage('Code verified successfully! Activating your CEDA profile...');
+        setStatusMessage(
+          effectiveChannel === 'email'
+            ? 'Email verified successfully! Activating your CEDA profile...'
+            : 'Code verified successfully! Activating your CEDA profile...'
+        );
 
         try {
           confetti({
@@ -261,7 +326,7 @@ export const OtpVerificationPage: React.FC = () => {
     }
   };
 
-  // Resend code handler
+  // Resend code / verification email handler
   const handleResend = async () => {
     if (resendCooldown > 0 || isResending) return;
 
@@ -270,15 +335,26 @@ export const OtpVerificationPage: React.FC = () => {
 
     try {
       const res = await authService.resendOtp(destination, channel);
-      setResendCooldown(30);
+      if (!res.success) {
+        setStatus('error');
+        setStatusMessage(res.message);
+        return;
+      }
+
+      setResendCooldown(res.cooldownSeconds || 30);
       setExpirySeconds(300);
       setDigits(['', '', '', '', '', '']);
+      setWarningMessage(res.warning || '');
       setStatus('idle');
-      setStatusMessage(`New code sent via ${channel.toUpperCase()}! (Demo code: ${res.demoCode})`);
+      setStatusMessage(
+        res.demoCode
+          ? `New code sent via ${channel.toUpperCase()}! (Demo code: ${res.demoCode})`
+          : res.message
+      );
       inputRefs.current[0]?.focus();
     } catch (err: unknown) {
       setStatus('error');
-      setStatusMessage(err instanceof Error ? err.message : 'Failed to resend code.');
+      setStatusMessage(err instanceof Error ? err.message : 'Failed to resend verification.');
     } finally {
       setIsResending(false);
     }
@@ -330,7 +406,11 @@ export const OtpVerificationPage: React.FC = () => {
             {/* Destination Description & Channel Switcher */}
             <div className="mt-2 flex flex-col items-center gap-1">
               <p className="text-sm text-[#5a413c]">
-                {language === 'Setswana'
+                {channel === 'email'
+                  ? language === 'Setswana'
+                    ? 'Re rometse kgolagano ya tlhomamiso kwa ho'
+                    : 'We sent a verification link to'
+                  : language === 'Setswana'
                   ? 'Re rometse khoutu ya dinomoro tse 6 kwa ho'
                   : 'We sent a 6-digit authentication code to'}{' '}
                 <span className="font-bold text-[#1c1c19] tabular-nums tracking-wide">
@@ -338,23 +418,78 @@ export const OtpVerificationPage: React.FC = () => {
                 </span>
               </p>
 
-              <button
-                type="button"
-                onClick={handleToggleChannel}
-                className="inline-flex items-center gap-1 text-xs font-semibold text-[#a02010] hover:underline cursor-pointer focus:outline-none"
-              >
-                <span className="material-symbols-outlined text-[16px]">swap_horiz</span>
-                <span>
-                  {channel === 'sms'
-                    ? 'Use registered email instead'
-                    : 'Use SMS phone number (+267) instead'}
-                </span>
-              </button>
+              {smsEnabled && (
+                <button
+                  type="button"
+                  onClick={handleToggleChannel}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-[#a02010] hover:underline cursor-pointer focus:outline-none"
+                >
+                  <span className="material-symbols-outlined text-[16px]">swap_horiz</span>
+                  <span>
+                    {channel === 'sms'
+                      ? 'Use registered email instead'
+                      : 'Use SMS phone number (+267) instead'}
+                  </span>
+                </button>
+              )}
             </div>
           </div>
 
           {/* Status Message Banners */}
           <div aria-live="polite">
+            {needsSignInPrompt && (
+              <div
+                role="status"
+                className="mb-5 p-3.5 rounded-xl bg-amber-50 border border-amber-300 text-xs text-amber-900 flex items-start justify-between gap-3 animate-in fade-in"
+              >
+                <div className="flex items-start gap-2.5">
+                  <span className="material-symbols-outlined text-[18px] text-amber-700 shrink-0 mt-0.5">
+                    login
+                  </span>
+                  <div className="flex flex-col">
+                    <span className="font-bold">Sign in to finish verifying your email</span>
+                    <span>
+                      Sign in with your email and password, then open your verification link or continue below.
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCurrentRoute('/login')}
+                  className="shrink-0 px-3 py-1.5 rounded-lg bg-[#a02010] hover:bg-[#861a0d] text-white font-bold transition-colors cursor-pointer"
+                >
+                  Sign In
+                </button>
+              </div>
+            )}
+
+            {warningMessage && (
+              <div
+                role="status"
+                className="mb-5 p-3 rounded-xl bg-amber-50 border border-amber-300 text-xs text-amber-900 flex items-start gap-2.5 animate-in fade-in"
+              >
+                <span className="material-symbols-outlined text-[18px] text-amber-700 shrink-0 mt-0.5">
+                  warning
+                </span>
+                <div className="flex flex-col">
+                  <span className="font-bold">Verification Link Notice</span>
+                  <span>{warningMessage}</span>
+                </div>
+              </div>
+            )}
+
+            {status === 'idle' && statusMessage && (
+              <div
+                role="status"
+                className="mb-5 p-3 rounded-xl bg-[#f7f3ee] border border-[#e2bfb8] text-xs text-[#1c1c19] flex items-start gap-2.5 animate-in fade-in"
+              >
+                <span className="material-symbols-outlined text-[18px] text-[#a02010] shrink-0 mt-0.5">
+                  mark_email_read
+                </span>
+                <span>{statusMessage}</span>
+              </div>
+            )}
+
             {status === 'error' && (
               <div
                 role="alert"
@@ -402,64 +537,78 @@ export const OtpVerificationPage: React.FC = () => {
             )}
           </div>
 
-          {/* OTP Input Group */}
+          {/* OTP / Email Link Verification Group */}
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              verifyCode(digits.join(''));
+              verifyCode(channel === 'email' ? '' : digits.join(''));
             }}
             className="flex flex-col gap-6"
           >
-            <div>
-              <label
-                htmlFor="digit-0"
-                className="block text-xs font-bold text-[#77574e] uppercase tracking-wider text-center mb-3"
-              >
-                Enter 6-Digit One-Time Password
-              </label>
-
-              {/* 6 Discrete Digit Boxes */}
-              <div className="flex justify-between items-center gap-2 sm:gap-2.5 max-w-md mx-auto">
-                {digits.map((digit, idx) => (
-                  <input
-                    key={idx}
-                    id={`digit-${idx}`}
-                    ref={(el) => {
-                      inputRefs.current[idx] = el;
-                    }}
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={1}
-                    pattern="[0-9]*"
-                    value={digit}
-                    disabled={status === 'locked' || status === 'verifying'}
-                    onChange={(e) => handleDigitChange(idx, e.target.value)}
-                    onKeyDown={(e) => handleKeyDown(idx, e)}
-                    onPaste={handlePaste}
-                    aria-label={`Digit ${idx + 1}`}
-                    className={`w-12 h-14 sm:w-14 sm:h-16 text-center font-headline text-2xl font-bold rounded-xl shadow-xs transition-all duration-200 outline-none tabular-nums ${
-                      status === 'error'
-                        ? 'bg-red-50/50 border-2 border-[#ba1a1a] text-[#ba1a1a]'
-                        : status === 'success'
-                        ? 'bg-emerald-50/50 border-2 border-emerald-600 text-emerald-800'
-                        : status === 'locked'
-                        ? 'bg-[#ddd9d5] border border-[#8d706b] text-[#5a413c] cursor-not-allowed'
-                        : digit
-                        ? 'bg-white border-2 border-[#a02010] text-[#1c1c19] shadow-sm'
-                        : 'bg-[#f7f3ee] border border-[#e2bfb8] text-[#1c1c19] focus:bg-white focus:border-2 focus:border-[#a02010]'
-                    }`}
-                  />
-                ))}
-              </div>
-
-              {/* Paste & Accessibility Hint */}
-              <div className="flex items-center justify-center gap-1.5 mt-3 text-xs text-[#5a413c]">
-                <span className="material-symbols-outlined text-[15px] text-[#77574e]">
-                  content_paste
+            {channel === 'email' ? (
+              <div className="rounded-xl bg-[#f7f3ee] border border-[#e2bfb8] p-5 text-center">
+                <span className="material-symbols-outlined text-[32px] text-[#a02010] mb-2">
+                  mark_email_unread
                 </span>
-                <span>Tip: You can paste the complete 6-digit code directly</span>
+                <p className="text-sm font-semibold text-[#1c1c19]">
+                  Click the verification link in your email inbox
+                </p>
+                <p className="text-xs text-[#5a413c] mt-1.5 leading-relaxed">
+                  Once you click the link, this page will activate your account automatically. If you opened the link in another tab, click &ldquo;I&apos;ve verified my email &mdash; Continue&rdquo; below.
+                </p>
               </div>
-            </div>
+            ) : (
+              <div>
+                <label
+                  htmlFor="digit-0"
+                  className="block text-xs font-bold text-[#77574e] uppercase tracking-wider text-center mb-3"
+                >
+                  Enter 6-Digit One-Time Password
+                </label>
+
+                {/* 6 Discrete Digit Boxes */}
+                <div className="flex justify-between items-center gap-2 sm:gap-2.5 max-w-md mx-auto">
+                  {digits.map((digit, idx) => (
+                    <input
+                      key={idx}
+                      id={`digit-${idx}`}
+                      ref={(el) => {
+                        inputRefs.current[idx] = el;
+                      }}
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={1}
+                      pattern="[0-9]*"
+                      value={digit}
+                      disabled={status === 'locked' || status === 'verifying'}
+                      onChange={(e) => handleDigitChange(idx, e.target.value)}
+                      onKeyDown={(e) => handleKeyDown(idx, e)}
+                      onPaste={handlePaste}
+                      aria-label={`Digit ${idx + 1}`}
+                      className={`w-12 h-14 sm:w-14 sm:h-16 text-center font-headline text-2xl font-bold rounded-xl shadow-xs transition-all duration-200 outline-none tabular-nums ${
+                        status === 'error'
+                          ? 'bg-red-50/50 border-2 border-[#ba1a1a] text-[#ba1a1a]'
+                          : status === 'success'
+                          ? 'bg-emerald-50/50 border-2 border-emerald-600 text-emerald-800'
+                          : status === 'locked'
+                          ? 'bg-[#ddd9d5] border border-[#8d706b] text-[#5a413c] cursor-not-allowed'
+                          : digit
+                          ? 'bg-white border-2 border-[#a02010] text-[#1c1c19] shadow-sm'
+                          : 'bg-[#f7f3ee] border border-[#e2bfb8] text-[#1c1c19] focus:bg-white focus:border-2 focus:border-[#a02010]'
+                      }`}
+                    />
+                  ))}
+                </div>
+
+                {/* Paste & Accessibility Hint */}
+                <div className="flex items-center justify-center gap-1.5 mt-3 text-xs text-[#5a413c]">
+                  <span className="material-symbols-outlined text-[15px] text-[#77574e]">
+                    content_paste
+                  </span>
+                  <span>Tip: You can paste the complete 6-digit code directly</span>
+                </div>
+              </div>
+            )}
 
             {/* Countdown and Resend Controls Matrix */}
             <div className="flex flex-col sm:flex-row items-center justify-between gap-2 bg-[#f7f3ee] p-3.5 rounded-xl border border-[#e2bfb8]/60 text-xs">
@@ -467,9 +616,11 @@ export const OtpVerificationPage: React.FC = () => {
                 <span className="material-symbols-outlined text-[#77574e] text-[18px]">
                   hourglass_top
                 </span>
-                <span className="text-[#5a413c]">Code expires in:</span>
+                <span className="text-[#5a413c]">
+                  {channel === 'email' ? 'Resend available in:' : 'Code expires in:'}
+                </span>
                 <span className="font-mono font-bold text-[#a02010] tabular-nums">
-                  {formatSeconds(expirySeconds)}
+                  {formatSeconds(channel === 'email' ? resendCooldown : expirySeconds)}
                 </span>
               </div>
 
@@ -484,7 +635,11 @@ export const OtpVerificationPage: React.FC = () => {
                       : 'text-[#a02010] hover:underline cursor-pointer'
                   }`}
                 >
-                  {isResending ? 'Sending...' : 'Resend code'}
+                  {isResending
+                    ? 'Sending...'
+                    : channel === 'email'
+                    ? 'Resend verification email'
+                    : 'Resend code'}
                 </button>
                 {resendCooldown > 0 && (
                   <span className="text-[#77574e] tabular-nums">
@@ -498,9 +653,17 @@ export const OtpVerificationPage: React.FC = () => {
             <div className="flex flex-col gap-2">
               <button
                 type="submit"
-                disabled={digits.some((d) => d === '') || status === 'locked' || status === 'verifying'}
+                disabled={
+                  (channel === 'sms' && digits.some((d) => d === '')) ||
+                  status === 'locked' ||
+                  status === 'verifying' ||
+                  status === 'success'
+                }
                 className={`w-full h-12 font-headline text-sm font-bold tracking-wide rounded-xl shadow-md transition-all flex items-center justify-center gap-2 ${
-                  digits.every((d) => d !== '') && status !== 'locked' && status !== 'verifying'
+                  (channel === 'email' || digits.every((d) => d !== '')) &&
+                  status !== 'locked' &&
+                  status !== 'verifying' &&
+                  status !== 'success'
                     ? 'bg-[#a02010] hover:bg-[#861a0d] active:bg-[#6e1409] text-white cursor-pointer hover:shadow-lg'
                     : 'bg-[#e6e2dd] text-[#8d706b] cursor-not-allowed'
                 }`}
@@ -510,7 +673,9 @@ export const OtpVerificationPage: React.FC = () => {
                     <span className="material-symbols-outlined text-[20px] animate-spin">
                       progress_activity
                     </span>
-                    <span>Verifying code...</span>
+                    <span>
+                      {channel === 'email' ? 'Checking email verification...' : 'Verifying code...'}
+                    </span>
                   </>
                 ) : status === 'success' ? (
                   <>
@@ -519,7 +684,11 @@ export const OtpVerificationPage: React.FC = () => {
                   </>
                 ) : (
                   <>
-                    <span>Verify &amp; Continue</span>
+                    <span>
+                      {channel === 'email'
+                        ? "I've verified my email — Continue"
+                        : 'Verify & Continue'}
+                    </span>
                     <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
                   </>
                 )}
@@ -554,29 +723,31 @@ export const OtpVerificationPage: React.FC = () => {
         </div>
 
         {/* Prototype Quick Diagnostic Controls */}
-        <div className="w-full max-w-[560px] mt-4 p-3 bg-white rounded-xl border border-[#e2bfb8] flex flex-wrap items-center justify-between gap-2 text-xs">
-          <span className="text-[#77574e] font-bold">Prototype Quick Fill:</span>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                setDigits(['5', '8', '2', '4', '9', '1']);
-                verifyCode('582491');
-              }}
-              className="px-2.5 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-900 rounded-md font-bold transition-colors cursor-pointer"
-            >
-              Fill 582491 (Valid)
-            </button>
-            <button
-              onClick={() => {
-                setDigits(['9', '0', '3', '7', '1', '2']);
-                verifyCode('903712');
-              }}
-              className="px-2.5 py-1 bg-red-100 hover:bg-red-200 text-red-900 rounded-md font-bold transition-colors cursor-pointer"
-            >
-              Simulate Wrong Code
-            </button>
+        {import.meta.env.VITE_ENABLE_DEMO_OTP === 'true' && channel === 'sms' && (
+          <div className="w-full max-w-[560px] mt-4 p-3 bg-white rounded-xl border border-[#e2bfb8] flex flex-wrap items-center justify-between gap-2 text-xs">
+            <span className="text-[#77574e] font-bold">Prototype Quick Fill:</span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  setDigits(['5', '8', '2', '4', '9', '1']);
+                  verifyCode('582491');
+                }}
+                className="px-2.5 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-900 rounded-md font-bold transition-colors cursor-pointer"
+              >
+                Fill 582491 (Valid)
+              </button>
+              <button
+                onClick={() => {
+                  setDigits(['9', '0', '3', '7', '1', '2']);
+                  verifyCode('903712');
+                }}
+                className="px-2.5 py-1 bg-red-100 hover:bg-red-200 text-red-900 rounded-md font-bold transition-colors cursor-pointer"
+              >
+                Simulate Wrong Code
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Regulatory Footnote */}
         <div className="mt-6 flex flex-wrap items-center justify-center gap-3 text-xs text-[#77574e] text-center">

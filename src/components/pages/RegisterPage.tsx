@@ -23,7 +23,7 @@ export const RegisterPage: React.FC = () => {
   const [selectedTown, setSelectedTown] = useState('Gaborone');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
-  const [verificationChannel, setVerificationChannel] = useState<VerificationChannel>('sms');
+  const verificationChannel: VerificationChannel = 'email';
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [bdpaConsent, setBdpaConsent] = useState(false);
@@ -53,7 +53,8 @@ export const RegisterPage: React.FC = () => {
   const isOmangValid = omangOrPassport.trim().length >= 8;
   const isDobValid = Boolean(dob);
   const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
-  const isPhoneValid = /^[0-9]{8}$/.test(phone.trim().replace(/\s/g, ''));
+  const cleanPhoneInput = phone.trim().replace(/\s/g, '');
+  const isPhoneValid = cleanPhoneInput === '' || /^[0-9]{8}$/.test(cleanPhoneInput);
   const isBusinessValid =
     accountType === 'individual' ||
     (tradingName.trim().length >= 3 &&
@@ -101,6 +102,7 @@ export const RegisterPage: React.FC = () => {
       tradingName: true,
       cipaNumber: true,
       bursTin: true,
+      bdpaConsent: true,
     });
 
     if (!isFormValid) {
@@ -129,11 +131,17 @@ export const RegisterPage: React.FC = () => {
         bdpaConsent,
       });
 
-      // Successful registration: Route to OTP verification with identifier & Firebase tracking params
-      const target = verificationChannel === 'sms' ? phone : email;
+      // Successful registration: Route to email verification with identifier & Firebase tracking params
+      const target = email;
       const vIdParam = response.verificationId ? `&vid=${encodeURIComponent(response.verificationId)}` : '';
       const emailSentParam = response.isEmailVerificationSent ? `&emailSent=true` : '';
-      setCurrentRoute(`/otp-verification?target=${encodeURIComponent(target)}&channel=${verificationChannel}&code=${response.demoOtpCode}${vIdParam}${emailSentParam}`);
+      const codeParam = response.demoOtpCode ? `&code=${encodeURIComponent(response.demoOtpCode)}` : '';
+      const warningParam = response.verificationWarning
+        ? `&warning=${encodeURIComponent(response.verificationWarning)}`
+        : '';
+      setCurrentRoute(
+        `/otp-verification?target=${encodeURIComponent(target)}&channel=${verificationChannel}${codeParam}${vIdParam}${emailSentParam}${warningParam}`
+      );
     } catch (err: unknown) {
       setServerError(err instanceof Error ? err.message : 'Registration failed. Please try again.');
     } finally {
@@ -142,29 +150,34 @@ export const RegisterPage: React.FC = () => {
   };
 
   return (
-    <div className="w-full min-h-[calc(100vh-5rem)] bg-[#fdf9f4] py-8 lg:py-12">
+    <div className="w-full min-h-[calc(100vh-5rem)] flex flex-col bg-[#fdf9f4]">
       {/* Invisible container for Firebase Phone Auth reCAPTCHA */}
       <div id="recaptcha-container" aria-hidden="true" className="invisible fixed top-0 left-0"></div>
-      <div className="max-w-[1200px] mx-auto px-4 md:px-8">
-        {/* Breadcrumb & Security Trust Strip */}
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-6 text-xs text-[#5a413c]">
+
+      {/* Top Utility & Security Bar */}
+      <section className="w-full bg-[#f7f3ee] border-b border-[#e2bfb8]/50">
+        <div className="max-w-[1200px] mx-auto px-4 md:px-8 py-3 flex flex-wrap items-center justify-between gap-3 text-xs text-[#5a413c]">
           <div className="flex items-center gap-2">
             <button
               onClick={() => setCurrentRoute('/')}
-              className="hover:text-[#a02010] transition-colors flex items-center gap-1"
+              className="hover:text-[#a02010] transition-colors font-medium flex items-center gap-1"
             >
-              <span className="material-symbols-outlined text-[16px]">home</span>
+              <span className="material-symbols-outlined text-[15px]">home</span>
               <span>Home</span>
             </button>
             <span className="text-[#8d706b]/40">›</span>
-            <span className="font-semibold text-[#1c1c19]">Innovator Registration</span>
+            <span className="text-[#1c1c19] font-bold">Innovator Registration</span>
           </div>
 
-          <div className="inline-flex items-center gap-2 bg-white px-3 py-1.5 rounded-full shadow-xs border border-[#e2bfb8]/60 text-[#77574e]">
-            <span className="material-symbols-outlined text-[16px] text-[#2e7d32]">verified_user</span>
-            <span>256-Bit SSL Encrypted • BDPA Compliant</span>
+          <div className="flex items-center gap-2 bg-white px-3 py-1 rounded-full shadow-xs border border-[#e2bfb8]/60">
+            <span className="material-symbols-outlined text-[#a02010] text-[16px]">verified_user</span>
+            <span className="font-medium text-[#77574e]">256-Bit SSL Encrypted • BDPA Compliant</span>
           </div>
         </div>
+      </section>
+
+      <div className="w-full py-8 lg:py-12">
+        <div className="max-w-[1200px] mx-auto px-4 md:px-8">
 
         {/* Main Split Grid (40% Left Panel / 60% Form Panel) */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-0 lg:gap-8 items-stretch shadow-md rounded-2xl overflow-hidden bg-white border border-[#e2bfb8]">
@@ -175,34 +188,10 @@ export const RegisterPage: React.FC = () => {
             <div className="absolute -bottom-24 -right-24 w-80 h-80 rounded-full bg-[#943100]/25 blur-3xl pointer-events-none"></div>
 
             <div className="relative z-10 flex flex-col">
-              {/* Brand Lockup */}
-              <div className="flex items-center gap-3 mb-4">
-                <img
-                  src="/assets/ceda-logo.png"
-                  alt="CEDA Logo"
-                  className="h-10 w-auto object-contain bg-white/95 p-1 rounded-lg"
-                />
-                <div className="flex flex-col border-l border-white/20 pl-2.5">
-                  <span className="font-headline text-xs font-bold uppercase tracking-wider text-white">
-                    Innovation Portal
-                  </span>
-                  <span className="text-[10px] text-amber-300 font-semibold tracking-widest uppercase">
-                    Republic of Botswana
-                  </span>
-                </div>
-              </div>
-
-              <div className="mt-4">
-                <span className="inline-block px-3 py-1 rounded-full bg-[#943100]/50 text-[#ffdbcf] text-xs font-bold uppercase tracking-wider mb-2">
-                  Portal Onboarding
-                </span>
-                <h1 className="font-headline text-2xl lg:text-3xl text-white font-bold leading-tight">
-                  Join the CEDA Innovation Community
+              <div>
+                <h1 className="font-headline text-2xl lg:text-[28px] text-white font-bold tracking-tight whitespace-nowrap">
+                  Bring Ideas to Life
                 </h1>
-                <p className="text-xs text-[#f4f0eb]/80 mt-2 leading-relaxed">
-                  Submit ground-breaking commercial, agricultural, and technological solutions to receive
-                  catalytic non-repayable grants, mezzanine debt, and incubation mentorship.
-                </p>
               </div>
 
               {/* Core Trust Highlights */}
@@ -245,16 +234,6 @@ export const RegisterPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Left Panel Footer: Mandate Quote */}
-            <div className="relative z-10 pt-8 mt-8 border-t border-white/10 flex flex-col gap-2">
-              <div className="p-3 rounded-lg bg-white/5 text-xs text-[#f4f0eb]/80 italic">
-                "Empowering Batswana innovators across all 10 administrative districts — from Ngamiland to Kgalagadi."
-              </div>
-              <div className="flex items-center justify-between text-[11px] text-amber-300 font-bold tracking-wide">
-                <span>FINANCE • DEVELOP • SUSTAIN</span>
-                <span>#KaeKapaKae</span>
-              </div>
-            </div>
           </section>
 
           {/* RIGHT 60% REGISTRATION FORM */}
@@ -262,11 +241,8 @@ export const RegisterPage: React.FC = () => {
             <div>
               {/* Header */}
               <div className="mb-6">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-bold text-[#77574e] uppercase tracking-wider">
-                    Applicant Profile (Citizen Intake)
-                  </span>
-                  <span className="text-xs font-bold text-[#a02010]">Public Registration</span>
+                <div className="flex items-center justify-end mb-1">
+                  <span className="text-xs font-bold text-[#a02010]">Self Registration</span>
                 </div>
                 <h2 className="font-headline text-2xl font-bold text-[#7c0700]">
                   Create your account
@@ -651,12 +627,14 @@ export const RegisterPage: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Phone */}
+                  {/* Phone (Optional contact field, stored as unverified) */}
                   <div className="flex flex-col gap-1">
                     <label htmlFor="reg-phone" className="text-xs font-bold text-[#1c1c19] flex items-center justify-between">
-                      <span>Phone number <span className="text-[#ba1a1a]">*</span></span>
+                      <span>
+                        Phone number <span className="text-[11px] font-normal text-[#77574e]">(optional)</span>
+                      </span>
                       {touched.phone && !isPhoneValid && (
-                        <span className="text-[10px] text-[#ba1a1a] font-semibold">8 digits required</span>
+                        <span className="text-[10px] text-[#ba1a1a] font-semibold">8 digits if provided</span>
                       )}
                     </label>
                     <div className="relative">
@@ -677,11 +655,10 @@ export const RegisterPage: React.FC = () => {
                           onBlur={() => markTouched('phone')}
                           placeholder="7X XXX XXX"
                           maxLength={8}
-                          required
                           className="flex-1 h-11 px-3 pr-10 text-xs font-medium text-[#1c1c19] bg-transparent outline-none"
                         />
                       </div>
-                      {touched.phone && (
+                      {touched.phone && cleanPhoneInput !== '' && (
                         <span className="absolute right-3 top-3 text-[18px]">
                           {isPhoneValid ? (
                             <span className="material-symbols-outlined text-emerald-600">check_circle</span>
@@ -694,70 +671,30 @@ export const RegisterPage: React.FC = () => {
                     {touched.phone && !isPhoneValid ? (
                       <p className="flex items-center gap-1 text-[11px] text-[#ba1a1a] mt-0.5">
                         <span className="material-symbols-outlined text-[14px]">warning</span>
-                        <span>Please enter an 8-digit Botswana mobile number (e.g. 71234567, 72000000)</span>
+                        <span>If provided, enter an 8-digit Botswana mobile number (e.g. 71234567)</span>
                       </p>
                     ) : (
                       <span className="text-[11px] text-[#5a413c]">
-                        Supported via Mascom, Orange, and BTC Mobile networks.
+                        Optional contact number (Mascom, Orange, or BTC). Stored unverified.
                       </span>
                     )}
                   </div>
                 </div>
 
-                {/* 6. Verification Channel Radio (SMS default vs Email) */}
-                <fieldset className="flex flex-col gap-1.5 pt-1">
-                  <legend className="text-xs font-bold text-[#1c1c19]">
-                    Account verification channel <span className="text-[#ba1a1a]">*</span>
-                  </legend>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" role="radiogroup">
-                    <label
-                      className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
-                        verificationChannel === 'sms'
-                          ? 'border-2 border-[#a02010] bg-[#ffd3c8]/20 shadow-xs'
-                          : 'border-[#e2bfb8] bg-[#f7f3ee] hover:bg-white text-[#5a413c]'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="channel"
-                        checked={verificationChannel === 'sms'}
-                        onChange={() => setVerificationChannel('sms')}
-                        className="mt-0.5 accent-[#a02010] w-4 h-4"
-                      />
-                      <div className="flex flex-col">
-                        <span className="text-xs font-bold text-[#1c1c19] flex items-center gap-1">
-                          <span>SMS (Fastest)</span>
-                          <span className="text-[10px] text-[#a02010] font-semibold">(Recommended)</span>
-                        </span>
-                        <span className="text-[11px] text-[#5a413c]">
-                          Instant 6-digit OTP dispatched to your Botswana SIM.
-                        </span>
-                      </div>
-                    </label>
-
-                    <label
-                      className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
-                        verificationChannel === 'email'
-                          ? 'border-2 border-[#a02010] bg-[#ffd3c8]/20 shadow-xs'
-                          : 'border-[#e2bfb8] bg-[#f7f3ee] hover:bg-white text-[#5a413c]'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="channel"
-                        checked={verificationChannel === 'email'}
-                        onChange={() => setVerificationChannel('email')}
-                        className="mt-0.5 accent-[#a02010] w-4 h-4"
-                      />
-                      <div className="flex flex-col">
-                        <span className="text-xs font-bold text-[#1c1c19]">Email confirmation</span>
-                        <span className="text-[11px] text-[#5a413c]">
-                          Secure 6-digit OTP delivered directly to your inbox.
-                        </span>
-                      </div>
-                    </label>
+                {/* 6. Email Verification Notice (Email is currently the only verification channel) */}
+                <div className="p-3.5 rounded-xl border border-[#e2bfb8] bg-[#f7f3ee] flex items-start gap-3">
+                  <span className="material-symbols-outlined text-[20px] text-[#a02010] mt-0.5">
+                    mark_email_read
+                  </span>
+                  <div className="flex flex-col">
+                    <span className="text-xs font-bold text-[#1c1c19]">
+                      Email Verification Required
+                    </span>
+                    <span className="text-[11px] text-[#5a413c] mt-0.5">
+                      We will send a verification link to your email address to activate your account.
+                    </span>
                   </div>
-                </fieldset>
+                </div>
 
                 {/* 7. Password & Confirm with Live Strength Meter & Rules */}
                 <div className="flex flex-col gap-3 pt-1">
@@ -923,39 +860,82 @@ export const RegisterPage: React.FC = () => {
                 </div>
 
                 {/* 8. BDPA Statutory Consent Checkbox */}
-                <div className="p-3.5 rounded-xl bg-[#f7f3ee] border border-[#e2bfb8]/70 flex items-start gap-3 mt-1">
-                  <input
-                    id="reg-consent"
-                    type="checkbox"
-                    checked={bdpaConsent}
-                    onChange={(e) => setBdpaConsent(e.target.checked)}
-                    required
-                    className="mt-0.5 accent-[#a02010] w-4 h-4 cursor-pointer shrink-0"
-                  />
-                  <label htmlFor="reg-consent" className="text-xs text-[#1c1c19] leading-relaxed cursor-pointer">
-                    I agree to the{' '}
-                    <button
-                      type="button"
-                      onClick={() => setCurrentRoute('/terms-of-service')}
-                      className="text-[#a02010] underline font-medium hover:text-[#7c0700]"
-                    >
-                      Terms of Service
-                    </button>{' '}
-                    and the{' '}
-                    <button
-                      type="button"
-                      onClick={() => setCurrentRoute('/privacy-notice')}
-                      className="text-[#a02010] underline font-medium hover:text-[#7c0700]"
-                    >
-                      Privacy Notice
-                    </button>
-                    , and I consent to CEDA processing my personal and enterprise submission data in strict accordance with the{' '}
-                    <strong className="text-[#1c1c19]">
-                      Data Protection Act, 2024 (Act No. 32 of 2018)
-                    </strong>{' '}
-                    <span className="text-[#ba1a1a] font-bold">*</span>.
-                  </label>
-                </div>
+                {(() => {
+                  const otherFieldsReady =
+                    isFirstNameValid &&
+                    isSurnameValid &&
+                    isOmangValid &&
+                    isDobValid &&
+                    isEmailValid &&
+                    isPhoneValid &&
+                    isBusinessValid &&
+                    pwdEvaluation.isValid &&
+                    isConfirmMatch;
+                  const showConsentError = !bdpaConsent && (Boolean(touched.bdpaConsent) || otherFieldsReady);
+
+                  return (
+                    <div className="flex flex-col gap-1.5 mt-1">
+                      <div
+                        className={`p-3.5 rounded-xl border flex items-start gap-3 transition-colors ${
+                          showConsentError
+                            ? 'bg-red-50/40 border-2 border-[#ba1a1a]'
+                            : 'bg-[#f7f3ee] border-[#e2bfb8]/70'
+                        }`}
+                      >
+                        <input
+                          id="reg-consent"
+                          type="checkbox"
+                          checked={bdpaConsent}
+                          onChange={(e) => {
+                            setBdpaConsent(e.target.checked);
+                            markTouched('bdpaConsent');
+                          }}
+                          onBlur={() => markTouched('bdpaConsent')}
+                          required
+                          aria-required="true"
+                          aria-invalid={showConsentError}
+                          aria-describedby={showConsentError ? 'reg-consent-error' : undefined}
+                          className="mt-0.5 accent-[#a02010] w-4 h-4 cursor-pointer shrink-0 rounded focus-visible:outline-2 focus-visible:outline-[#f8a018] focus-visible:outline-offset-2"
+                        />
+                        <label htmlFor="reg-consent" className="text-xs text-[#1c1c19] leading-relaxed cursor-pointer">
+                          I agree to the{' '}
+                          <a
+                            href="/terms?from=register"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-[#a02010] underline font-semibold hover:text-[#7c0700] rounded-xs"
+                          >
+                            Terms of Service
+                          </a>{' '}
+                          and the{' '}
+                          <a
+                            href="/privacy?from=register"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-[#a02010] underline font-semibold hover:text-[#7c0700] rounded-xs"
+                          >
+                            Privacy Notice
+                          </a>{' '}
+                          <span className="text-[#ba1a1a] font-bold">*</span>
+                        </label>
+                      </div>
+                      {showConsentError && (
+                        <p
+                          id="reg-consent-error"
+                          role="alert"
+                          className="flex items-center gap-1 text-[11px] font-medium text-[#ba1a1a]"
+                        >
+                          <span className="material-symbols-outlined text-[14px]" aria-hidden="true">
+                            warning
+                          </span>
+                          <span>You must accept the Terms and Privacy Notice to continue.</span>
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* Submit Button */}
                 <div className="pt-2">
@@ -977,13 +957,13 @@ export const RegisterPage: React.FC = () => {
                       </>
                     ) : (
                       <>
-                        <span>Create account and send code</span>
+                        <span>Create account &amp; verify email</span>
                         <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
                       </>
                     )}
                   </button>
                   <p className="text-center text-[11px] text-[#77574e] mt-2">
-                    Next step: 6-digit OTP verification via mobile SMS or email.
+                    Next step: Click the verification link sent to your email address.
                   </p>
                 </div>
 
@@ -1000,26 +980,9 @@ export const RegisterPage: React.FC = () => {
                 </div>
               </form>
             </div>
-
-            {/* Assistance Strip */}
-            <div className="mt-6 pt-4 border-t border-[#f1ede8] flex flex-wrap items-center justify-between gap-2 text-xs text-[#77574e]">
-              <div className="flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-[16px] text-[#a02010]">support_agent</span>
-                <span>Need registration support?</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="font-semibold text-[#1c1c19]">Toll Free: 1800 2332</span>
-                <span>•</span>
-                <button
-                  onClick={() => setCurrentRoute('/help-center')}
-                  className="hover:underline text-[#a02010]"
-                >
-                  Branch Directory
-                </button>
-              </div>
-            </div>
           </section>
         </div>
+      </div>
       </div>
     </div>
   );

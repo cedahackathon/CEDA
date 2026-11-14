@@ -5,6 +5,7 @@
 
 import React, { useState } from 'react';
 import { useAuth } from '../../../context/AuthContext';
+import { LegalUpdateBanner } from '../../common/LegalUpdateBanner';
 
 export const AdjudicatorDashboard: React.FC = () => {
   const { currentUser } = useAuth();
@@ -21,6 +22,7 @@ export const AdjudicatorDashboard: React.FC = () => {
   return (
     <div className="min-h-screen bg-[#fdf9f4] py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-6xl mx-auto space-y-6">
+        <LegalUpdateBanner />
         {/* Top Header */}
         <div className="bg-white rounded-2xl border border-[#eedfd6] p-6 sm:p-8 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>

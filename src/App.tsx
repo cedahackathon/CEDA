@@ -18,10 +18,12 @@ import { OtpVerificationPage } from './components/pages/OtpVerificationPage';
 import { LoginPage } from './components/pages/LoginPage';
 import { ForgotPasswordPage } from './components/pages/ForgotPasswordPage';
 import { ResetPasswordPage } from './components/pages/ResetPasswordPage';
+import { AuthActionPage } from './components/pages/AuthActionPage';
 import { SessionsPage } from './components/pages/SessionsPage';
 import { ForbiddenPage } from './components/pages/ForbiddenPage';
 import { NotFoundPage } from './components/pages/NotFoundPage';
 import { GuidelinesPage, FaqsPage, HelpCenterPage } from './components/pages/InfoPages';
+import { LegalPage } from './components/pages/LegalPage';
 
 // Role Dashboards
 import { SubmitterDashboard } from './components/pages/dashboards/SubmitterDashboard';
@@ -75,15 +77,33 @@ const AppContent: React.FC = () => {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [setCurrentRoute]);
 
-  // Sync window.location when currentRoute changes
+  const cleanPath = currentRoute.split('?')[0];
+  const resetRedirectTarget = (() => {
+    if (cleanPath !== '/reset-password') return null;
+    const queryString = currentRoute.includes('?') ? currentRoute.split('?')[1] : '';
+    const params = new URLSearchParams(queryString);
+    const oobCode = params.get('oobCode');
+    if (!oobCode) return null;
+    const nextParams = new URLSearchParams();
+    nextParams.set('mode', params.get('mode') || 'resetPassword');
+    nextParams.set('oobCode', oobCode);
+    const lang = params.get('lang');
+    if (lang) nextParams.set('lang', lang);
+    return `/auth/action?${nextParams.toString()}`;
+  })();
+
+  // Sync window.location when currentRoute changes (and redirect /reset-password?oobCode=...)
   useEffect(() => {
+    if (resetRedirectTarget) {
+      window.history.replaceState(null, '', resetRedirectTarget);
+      setCurrentRoute(resetRedirectTarget);
+      return;
+    }
     if (window.location.pathname + window.location.search !== currentRoute) {
       window.history.pushState(null, '', currentRoute);
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [currentRoute]);
-
-  const cleanPath = currentRoute.split('?')[0];
+  }, [currentRoute, resetRedirectTarget, setCurrentRoute]);
   const isAdminRoute =
     cleanPath === '/admin' ||
     cleanPath.startsWith('/admin/') ||
@@ -164,7 +184,13 @@ const AppContent: React.FC = () => {
         return <ForgotPasswordPage />;
 
       case '/reset-password':
+        if (resetRedirectTarget) {
+          return null;
+        }
         return <ResetPasswordPage />;
+
+      case '/auth/action':
+        return <AuthActionPage />;
 
       case '/sessions':
         return (
@@ -178,6 +204,14 @@ const AppContent: React.FC = () => {
 
       case '/faqs':
         return <FaqsPage />;
+
+      case '/terms':
+      case '/terms-of-service':
+        return <LegalPage doc="terms" />;
+
+      case '/privacy':
+      case '/privacy-notice':
+        return <LegalPage doc="privacy" />;
 
       case '/help-center':
         if (isAuthenticated && currentUser?.role === 'SUBMITTER') {
@@ -264,7 +298,7 @@ const AppContent: React.FC = () => {
       {hidePublicChrome ? (
         <div className="flex-1">{renderCurrentPage()}</div>
       ) : (
-        <main className="flex-1 pt-20">{renderCurrentPage()}</main>
+        <main className="flex-1 pt-20 print:pt-0">{renderCurrentPage()}</main>
       )}
       {!hidePublicChrome && <Footer />}
       <IdleTimeoutModal />

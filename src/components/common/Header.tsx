@@ -15,7 +15,7 @@ export const Header: React.FC = () => {
   const roleConfig = currentUser ? ROLE_CONFIGS[currentUser.role] : null;
 
   return (
-    <header className="fixed top-0 w-full z-50 bg-[#fdf9f4]/95 backdrop-blur-md shadow-[0_1px_8px_rgba(62,42,37,0.06)] border-b border-[#e2bfb8]/40">
+    <header className="print:hidden fixed top-0 w-full z-50 bg-[#fdf9f4]/95 backdrop-blur-md shadow-[0_1px_8px_rgba(62,42,37,0.06)] border-b border-[#e2bfb8]/40">
       <div className="h-20 max-w-[1200px] mx-auto px-4 md:px-8 flex items-center justify-between gap-4">
         {/* Left: Brand Identity Lockup */}
         <div className="flex items-center gap-4">
