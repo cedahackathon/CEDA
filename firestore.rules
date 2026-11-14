@@ -342,6 +342,20 @@ service cloud.firestore {
         && (!('note' in docData) || (docData.note is string && docData.note.size() <= 200));
     }
 
+    function isIdeaOwner(dbName, ideaId) {
+      return isSignedIn()
+        && exists(/databases/$(dbName)/documents/ideas/$(ideaId))
+        && get(/databases/$(dbName)/documents/ideas/$(ideaId)).data.submitterId == request.auth.uid;
+    }
+
+    function isReviewStaff(dbName) {
+      return isSignedIn() && (
+        hasRole(dbName, 'EVALUATOR')
+        || hasRole(dbName, 'ADJUDICATOR')
+        || isAdmin(dbName)
+      );
+    }
+
     // 7. Submitter Ideas collection
     match /ideas/{ideaId} {
       allow read: if isSignedIn() && (
@@ -415,6 +429,35 @@ service cloud.firestore {
             (isParentIdeaOwner(database, ideaId) && isParentIdeaEditable(database, ideaId))
             || isAdmin(database)
           );
+      }
+
+      match /events/{eventId} {
+        allow read: if isSignedIn() && (
+          (isIdeaOwner(database, ideaId) && resource.data.applicantVisible == true)
+          || isReviewStaff(database)
+          || hasRole(database, 'STAKEHOLDER')
+        );
+        allow create: if isReviewStaff(database);
+        allow update, delete: if isAdmin(database);
+      }
+
+      match /queries/{queryId} {
+        allow read: if isSignedIn() && (
+          isIdeaOwner(database, ideaId)
+          || isReviewStaff(database)
+        );
+        allow create, delete: if isReviewStaff(database);
+        allow update: if isReviewStaff(database) || (
+          isIdeaOwner(database, ideaId)
+          && resource.data.status == 'open'
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['status', 'respondedAt', 'response'])
+          && request.resource.data.status == 'responded'
+          && request.resource.data.response is map
+          && request.resource.data.response.message is string
+          && request.resource.data.response.message.size() >= 10
+          && request.resource.data.response.message.size() <= 2000
+        );
       }
     }
 

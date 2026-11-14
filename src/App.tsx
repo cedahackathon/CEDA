@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Header } from './components/common/Header';
 import { Footer } from './components/common/Footer';
@@ -78,6 +78,7 @@ const AppContent: React.FC = () => {
   }, [setCurrentRoute]);
 
   const cleanPath = currentRoute.split('?')[0];
+  const prevCleanPathRef = useRef<string>(cleanPath);
   const resetRedirectTarget = (() => {
     if (cleanPath !== '/reset-password') return null;
     const queryString = currentRoute.includes('?') ? currentRoute.split('?')[1] : '';
@@ -102,8 +103,11 @@ const AppContent: React.FC = () => {
     if (window.location.pathname + window.location.search !== currentRoute) {
       window.history.pushState(null, '', currentRoute);
     }
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [currentRoute, resetRedirectTarget, setCurrentRoute]);
+    if (prevCleanPathRef.current !== cleanPath) {
+      prevCleanPathRef.current = cleanPath;
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [cleanPath, currentRoute, resetRedirectTarget, setCurrentRoute]);
   const isAdminRoute =
     cleanPath === '/admin' ||
     cleanPath.startsWith('/admin/') ||

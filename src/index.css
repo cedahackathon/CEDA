@@ -144,3 +144,15 @@ h1, h2, h3, h4, .font-headline {
   }
 }
 
+@media print {
+  @page {
+    margin: 16mm;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #1c1c19 !important;
+  }
+}
+
+

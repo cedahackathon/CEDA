@@ -196,7 +196,7 @@ export const SubmitterLayout: React.FC<SubmitterLayoutProps> = ({
       {/* Desktop Fixed Full-Height Collapsible Sidebar (264px expanded / 72px collapsed) */}
       <aside
         aria-label="Submitter navigation"
-        className={`hidden lg:flex lg:fixed lg:inset-y-0 lg:left-0 lg:z-40 h-screen flex-col bg-[#fbf7f1] text-[#38231d] border-r border-[#e2bfb8]/70 transition-[width] duration-200 ease-in-out select-none ${
+        className={`print:hidden hidden lg:flex lg:fixed lg:inset-y-0 lg:left-0 lg:z-40 h-screen flex-col bg-[#fbf7f1] text-[#38231d] border-r border-[#e2bfb8]/70 transition-[width] duration-200 ease-in-out select-none ${
           isCollapsed ? 'lg:w-[72px]' : 'lg:w-[264px]'
         }`}
       >
@@ -492,12 +492,12 @@ export const SubmitterLayout: React.FC<SubmitterLayoutProps> = ({
 
       {/* Main Column */}
       <div
-        className={`flex-1 flex flex-col min-w-0 transition-[padding] duration-200 ease-in-out ${
+        className={`flex-1 flex flex-col min-w-0 transition-[padding] duration-200 ease-in-out print:pl-0 ${
           isCollapsed ? 'lg:pl-[72px]' : 'lg:pl-[264px]'
         }`}
       >
         {/* Top Utility Bar (NO Submit idea button, NO broken logo, NO "Citizen Innovator" label) */}
-        <header className="sticky top-0 z-30 h-14 sm:h-16 bg-white/95 backdrop-blur-md border-b border-[#e2bfb8]/60 px-3 sm:px-4 lg:px-6 flex items-center justify-between gap-2 sm:gap-3">
+        <header className="print:hidden sticky top-0 z-30 h-14 sm:h-16 bg-white/95 backdrop-blur-md border-b border-[#e2bfb8]/60 px-3 sm:px-4 lg:px-6 flex items-center justify-between gap-2 sm:gap-3">
           {/* Left: Mobile Menu + CEDA mark OR Desktop Search */}
           <div className="flex items-center gap-2 sm:gap-2.5 flex-1 min-w-0">
             <button
@@ -783,7 +783,7 @@ export const SubmitterLayout: React.FC<SubmitterLayoutProps> = ({
         </header>
 
         {/* Mobile Search Bar (< lg) */}
-        <div className="lg:hidden px-4 pt-3 bg-[#fdf9f4]">
+        <div className="print:hidden lg:hidden px-4 pt-3 bg-[#fdf9f4]">
           <div className="relative">
             <label htmlFor="submitter-mobile-search" className="sr-only">
               Search submissions, reference ID or status
@@ -803,7 +803,7 @@ export const SubmitterLayout: React.FC<SubmitterLayoutProps> = ({
         </div>
 
         {/* Page Body */}
-        <main className="flex-1 px-4 sm:px-6 lg:px-8 py-5 sm:py-6 pb-24 lg:pb-10 max-w-[1440px] w-full mx-auto">
+        <main className="flex-1 px-4 sm:px-6 lg:px-8 py-5 sm:py-6 pb-24 lg:pb-10 max-w-[1440px] w-full mx-auto print:p-0 print:max-w-none">
           {children}
         </main>
       </div>
@@ -811,7 +811,7 @@ export const SubmitterLayout: React.FC<SubmitterLayoutProps> = ({
       {/* Mobile Bottom Navigation Bar (< lg) */}
       <nav
         aria-label="Mobile submitter quick navigation"
-        className="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white border-t border-[#e2bfb8]/80 px-2 py-1.5 grid grid-cols-5 gap-1 shadow-[0_-2px_10px_rgba(62,42,37,0.06)]"
+        className="print:hidden lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white border-t border-[#e2bfb8]/80 px-2 py-1.5 grid grid-cols-5 gap-1 shadow-[0_-2px_10px_rgba(62,42,37,0.06)]"
       >
         <button
           type="button"

@@ -32,6 +32,8 @@ import {
 import {
   deleteDocumentFromSupabaseAndFirestore,
   getDocumentPublicUrlFromFirestore,
+  handleFirestoreError,
+  OperationType,
   updateDocumentNoteInFirestore,
   uploadDocumentToSupabaseAndFirestore,
 } from './documentStorageService';
@@ -2530,6 +2532,662 @@ export async function submitFinalIdeaApplication(draft: IdeaDraft): Promise<Idea
       declaration: cleanDeclaration,
     },
   };
+}
+
+/* ============================================================================
+ * SUBMISSION TRACKING DETAIL (/submissions/:id) — REAL-TIME LISTENERS & QUERIES
+ * ============================================================================ */
+
+export function toDate(value: unknown): Date | null {
+  if (value === null || value === undefined || value === '') return null;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return null;
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const d = new Date(trimmed);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  if (typeof value === 'object') {
+    const obj = value as {
+      toDate?: () => Date;
+      seconds?: unknown;
+      nanoseconds?: unknown;
+    };
+    if (typeof obj.toDate === 'function') {
+      try {
+        const d = obj.toDate();
+        return d instanceof Date && !Number.isNaN(d.getTime()) ? d : null;
+      } catch {
+        return null;
+      }
+    }
+    if (typeof obj.seconds === 'number' && Number.isFinite(obj.seconds)) {
+      const ns = typeof obj.nanoseconds === 'number' && Number.isFinite(obj.nanoseconds)
+        ? obj.nanoseconds
+        : 0;
+      const d = new Date(obj.seconds * 1000 + Math.floor(ns / 1_000_000));
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+  }
+  return null;
+}
+
+export function formatDateCAT(value: unknown): string {
+  const date = toDate(value);
+  if (!date) return 'Not specified';
+  return date.toLocaleDateString('en-GB', {
+    timeZone: 'Africa/Gaborone',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+export function formatDateTimeCATStrict(value: unknown): string {
+  const date = toDate(value);
+  if (!date) return 'Not specified';
+  const datePart = formatDateCAT(date);
+  const timePart = date
+    .toLocaleTimeString('en-GB', {
+      timeZone: 'Africa/Gaborone',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      hourCycle: 'h23',
+    })
+    .replace(/^24:/, '00:');
+  return `${datePart}, ${timePart} CAT`;
+}
+
+export interface IdeaEventRecord {
+  id: string;
+  title: string;
+  detail: string;
+  actorLabel: string;
+  eventType: string;
+  applicantVisible: boolean;
+  createdAt: Date | null;
+}
+
+export interface IdeaQueryAttachment {
+  name: string;
+  size: number;
+  contentType: string;
+  publicUrl: string;
+  storagePath: string;
+  documentId?: string;
+}
+
+export interface IdeaQueryResponse {
+  message: string;
+  attachments: IdeaQueryAttachment[];
+}
+
+export interface IdeaQueryRecord {
+  id: string;
+  queryRef: string;
+  title: string;
+  message: string;
+  fromLabel: string;
+  status: 'open' | 'responded';
+  createdAt: Date | null;
+  dueAt: Date | null;
+  respondedAt: Date | null;
+  attachmentsRequested: number;
+  response: IdeaQueryResponse | null;
+}
+
+export interface TrackedSubmissionApplicant {
+  type: WizardApplicantType;
+  firstName: string;
+  surname: string;
+  fullName: string;
+  email: string;
+  phone: string;
+  district: string;
+  town: string;
+  address: string;
+  business: WizardBusinessDetails;
+  team: WizardTeamMember[];
+}
+
+export interface TrackedSubmissionDetail {
+  id: string;
+  submitterId: string;
+  status: IdeaStatus;
+  stageStep: number; // 1..5
+  reference: string;
+  title: string;
+  sector: string;
+  subSector: string;
+  problem: string;
+  solution: string;
+  beneficiaries: string;
+  innovationType: string;
+  trl: number | null;
+  ipStatus: string;
+  jobsEstimate: number | null;
+  impactMetric: string;
+  demographics: string[];
+  requestedCapital: number | null;
+  submittedAt: Date | null;
+  createdAt: Date | null;
+  updatedAt: Date | null;
+  estimatedCompletionAt: Date | null;
+  directorate: string | null;
+  applicant: TrackedSubmissionApplicant;
+  documents: WizardIdeaDocuments;
+}
+
+function normalizeTeamMembers(rawTeam: unknown): WizardTeamMember[] {
+  if (!Array.isArray(rawTeam)) return [];
+  return rawTeam
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const item = entry as Record<string, unknown>;
+      const name = typeof item.name === 'string' ? item.name.trim() : '';
+      const role = typeof item.role === 'string' ? item.role.trim() : '';
+      const phone = typeof item.phone === 'string' ? item.phone.trim() : '';
+      if (!name && !role) return null;
+      return { name, role, phone };
+    })
+    .filter((item): item is WizardTeamMember => Boolean(item));
+}
+
+function normalizeSingleDocFromUnknown(raw: unknown, fallbackId: string): IdeaDocumentFile | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  const name = typeof obj.name === 'string' ? obj.name.trim() : '';
+  if (!name) return null;
+  const size = Number(obj.size);
+  const uploadedAt =
+    normalizeTimestamp(obj.uploadedAt || obj.createdAt) || new Date().toISOString();
+  return {
+    fileId:
+      (typeof obj.fileId === 'string' && obj.fileId.trim()) ||
+      (typeof obj.documentId === 'string' && obj.documentId.trim()) ||
+      fallbackId,
+    documentId: typeof obj.documentId === 'string' ? obj.documentId.trim() : undefined,
+    name,
+    size: Number.isFinite(size) && size >= 0 ? Math.round(size) : 0,
+    contentType:
+      typeof obj.contentType === 'string' && obj.contentType.trim()
+        ? obj.contentType.trim()
+        : 'application/pdf',
+    storagePath: typeof obj.storagePath === 'string' ? obj.storagePath.trim() : undefined,
+    publicUrl: typeof obj.publicUrl === 'string' ? obj.publicUrl.trim() : undefined,
+    uploaderId: typeof obj.uploaderId === 'string' ? obj.uploaderId.trim() : undefined,
+    uploadedAt,
+    note: typeof obj.note === 'string' ? obj.note.trim() : undefined,
+  };
+}
+
+function normalizeWizardDocumentsFromUnknown(rawDocs: unknown): WizardIdeaDocuments {
+  const empty = createEmptyIdeaDocuments();
+  if (!rawDocs || typeof rawDocs !== 'object') return empty;
+  const obj = rawDocs as Record<string, unknown>;
+  const letters = Array.isArray(obj.letters)
+    ? obj.letters
+        .map((entry, idx) => normalizeSingleDocFromUnknown(entry, `letter-${idx + 1}`))
+        .filter((entry): entry is IdeaDocumentFile => Boolean(entry))
+    : [];
+
+  return {
+    omang: normalizeSingleDocFromUnknown(obj.omang, 'omang'),
+    conceptNote: normalizeSingleDocFromUnknown(obj.conceptNote, 'conceptNote'),
+    budget: normalizeSingleDocFromUnknown(obj.budget, 'budget'),
+    proofOfResidence: normalizeSingleDocFromUnknown(obj.proofOfResidence, 'proofOfResidence'),
+    cipa: normalizeSingleDocFromUnknown(obj.cipa, 'cipa'),
+    letters,
+  };
+}
+
+function resolveStageStepForDetail(
+  rawStage: unknown,
+  rawCurrentStage: unknown,
+  status: IdeaStatus
+): number {
+  const explicit = rawCurrentStage ?? rawStage;
+  const num = Number(explicit);
+  if (!Number.isNaN(num) && num >= 1 && num <= 5) {
+    return Math.round(num);
+  }
+  if (typeof explicit === 'string') {
+    const lower = explicit.trim().toLowerCase();
+    if (lower.includes('award')) return 5;
+    if (lower.includes('approv')) return 4;
+    if (lower.includes('feedback')) return 3;
+    if (lower.includes('review')) return 2;
+    if (lower === 'submitted' || lower === 'submission') {
+      // If status progressed without updating `stage: 'submitted'`, honour status step
+      if (status === 'awarded') return 5;
+      if (status === 'approved') return 4;
+      if (status === 'feedback_requested') return 3;
+      if (status === 'under_review') return 2;
+      return 1;
+    }
+  }
+  if (status === 'awarded') return 5;
+  if (status === 'approved') return 4;
+  if (status === 'feedback_requested') return 3;
+  if (status === 'under_review') return 2;
+  return 1;
+}
+
+export function mapIdeaDocToTrackedDetail(
+  docId: string,
+  raw: Record<string, unknown>
+): TrackedSubmissionDetail {
+  const status = normalizeIdeaStatus(raw.status);
+  const rawApplicant =
+    raw.applicant && typeof raw.applicant === 'object'
+      ? (raw.applicant as Record<string, unknown>)
+      : {};
+  const rawBusiness =
+    rawApplicant.business && typeof rawApplicant.business === 'object'
+      ? (rawApplicant.business as Record<string, unknown>)
+      : {};
+  const rawIdea =
+    raw.idea && typeof raw.idea === 'object' ? (raw.idea as Record<string, unknown>) : {};
+
+  const firstName = typeof rawApplicant.firstName === 'string' ? rawApplicant.firstName.trim() : '';
+  const surname = typeof rawApplicant.surname === 'string' ? rawApplicant.surname.trim() : '';
+  const fullName =
+    [firstName, surname].filter(Boolean).join(' ') ||
+    (typeof raw.applicantName === 'string' ? raw.applicantName.trim() : '') ||
+    'Applicant';
+
+  const applicantType: WizardApplicantType =
+    rawApplicant.type === 'business' || raw.accountType === 'business'
+      ? 'business'
+      : 'individual';
+
+  const trlRaw = rawIdea.trl ?? raw.trl;
+  let trl: number | null = null;
+  if (typeof trlRaw === 'number' && Number.isFinite(trlRaw) && trlRaw >= 1 && trlRaw <= 9) {
+    trl = Math.round(trlRaw);
+  } else if (typeof trlRaw === 'string') {
+    const match = trlRaw.match(/[1-9]/);
+    if (match) trl = Number(match[0]);
+  }
+
+  const jobsRaw = rawIdea.jobsEstimate ?? raw.jobsEstimate;
+  const jobsNum = Number(jobsRaw);
+  const jobsEstimate =
+    jobsRaw !== null && jobsRaw !== undefined && jobsRaw !== '' && Number.isFinite(jobsNum) && jobsNum >= 0
+      ? Math.round(jobsNum)
+      : null;
+
+  const capRaw =
+    raw.requestedCapital ??
+    raw.requestedAmountBwp ??
+    rawIdea.requestedCapital ??
+    rawIdea.requestedAmountBwp;
+  const capNum = Number(capRaw);
+  const requestedCapital =
+    capRaw !== null && capRaw !== undefined && capRaw !== '' && Number.isFinite(capNum) && capNum > 0
+      ? capNum
+      : null;
+
+  const explicitRef =
+    (typeof raw.reference === 'string' && raw.reference.trim()) ||
+    (typeof raw.trackingCode === 'string' && raw.trackingCode.trim()) ||
+    '';
+
+  const createdAt = toDate(raw.createdAt);
+  const updatedAt = toDate(raw.updatedAt) || createdAt;
+  const submittedAt = toDate(raw.submittedAt) || (status !== 'draft' ? createdAt : null);
+
+  const estimatedCompletionAt = toDate(
+    raw.estimatedCompletionAt ?? raw.estimatedCompletionDate ?? raw.slaDeadline
+  );
+  const directorate =
+    (typeof raw.directorate === 'string' && raw.directorate.trim()) ||
+    (typeof raw.assignedCluster === 'string' && raw.assignedCluster.trim()) ||
+    null;
+
+  return {
+    id: docId,
+    submitterId: typeof raw.submitterId === 'string' ? raw.submitterId.trim() : '',
+    status,
+    stageStep: resolveStageStepForDetail(raw.stage, raw.currentStage, status),
+    reference: explicitRef || (status === 'draft' ? 'Draft' : docId.slice(0, 12).toUpperCase()),
+    title:
+      (typeof rawIdea.title === 'string' && rawIdea.title.trim()) ||
+      (typeof raw.title === 'string' && raw.title.trim()) ||
+      (typeof raw.ideaTitle === 'string' && raw.ideaTitle.trim()) ||
+      'Untitled innovation proposal',
+    sector:
+      (typeof rawIdea.sector === 'string' && rawIdea.sector.trim()) ||
+      (typeof raw.sector === 'string' && raw.sector.trim()) ||
+      'General Innovation',
+    subSector:
+      (typeof rawIdea.subSector === 'string' && rawIdea.subSector.trim()) ||
+      (typeof raw.subSector === 'string' && raw.subSector.trim()) ||
+      '',
+    problem: typeof rawIdea.problem === 'string' ? rawIdea.problem.trim() : '',
+    solution: typeof rawIdea.solution === 'string' ? rawIdea.solution.trim() : '',
+    beneficiaries: typeof rawIdea.beneficiaries === 'string' ? rawIdea.beneficiaries.trim() : '',
+    innovationType: typeof rawIdea.innovationType === 'string' ? rawIdea.innovationType.trim() : '',
+    trl,
+    ipStatus: typeof rawIdea.ipStatus === 'string' ? rawIdea.ipStatus.trim() : '',
+    jobsEstimate,
+    impactMetric: typeof rawIdea.impactMetric === 'string' ? rawIdea.impactMetric.trim() : '',
+    demographics: Array.isArray(rawIdea.demographics)
+      ? rawIdea.demographics.filter((d): d is string => typeof d === 'string' && Boolean(d.trim()))
+      : [],
+    requestedCapital,
+    submittedAt,
+    createdAt,
+    updatedAt,
+    estimatedCompletionAt,
+    directorate,
+    applicant: {
+      type: applicantType,
+      firstName,
+      surname,
+      fullName,
+      email: typeof rawApplicant.email === 'string' ? rawApplicant.email.trim() : '',
+      phone: typeof rawApplicant.phone === 'string' ? rawApplicant.phone.trim() : '',
+      district:
+        (typeof rawApplicant.district === 'string' && rawApplicant.district.trim()) ||
+        (typeof raw.district === 'string' && raw.district.trim()) ||
+        '',
+      town:
+        (typeof rawApplicant.town === 'string' && rawApplicant.town.trim()) ||
+        (typeof raw.town === 'string' && raw.town.trim()) ||
+        '',
+      address:
+        (typeof rawApplicant.address === 'string' && rawApplicant.address.trim()) ||
+        (typeof raw.address === 'string' && raw.address.trim()) ||
+        '',
+      business: {
+        tradingName:
+          (typeof rawBusiness.tradingName === 'string' && rawBusiness.tradingName.trim()) ||
+          (typeof raw.tradingName === 'string' && raw.tradingName.trim()) ||
+          '',
+        cipaNumber:
+          (typeof rawBusiness.cipaNumber === 'string' && rawBusiness.cipaNumber.trim()) ||
+          (typeof raw.cipaNumber === 'string' && raw.cipaNumber.trim()) ||
+          '',
+        tin: typeof rawBusiness.tin === 'string' ? rawBusiness.tin.trim() : '',
+      },
+      team: normalizeTeamMembers(rawApplicant.team),
+    },
+    documents: normalizeWizardDocumentsFromUnknown(rawIdea.documents ?? raw.documents),
+  };
+}
+
+function formatFirestoreErrorFriendly(err: unknown, op: OperationType, path: string): string {
+  try {
+    handleFirestoreError(err, op, path);
+  } catch (thrown) {
+    if (thrown instanceof Error) {
+      try {
+        const parsed = JSON.parse(thrown.message) as { error?: string };
+        if (parsed.error) return parsed.error;
+      } catch {
+        return thrown.message;
+      }
+    }
+  }
+  return 'Unable to connect to Firestore right now.';
+}
+
+export function subscribeToSubmitterIdeasForDetail(
+  uid: string,
+  onUpdate: (ideas: TrackedSubmissionDetail[]) => void,
+  onError: (message: string) => void
+): Unsubscribe {
+  if (!uid) {
+    onUpdate([]);
+    return () => {};
+  }
+
+  if (!db || !auth || firebaseConfig.apiKey.includes('MockKey')) {
+    const localItems = getLocalIdeasForUser(uid).map((item) =>
+      mapIdeaDocToTrackedDetail(item.id, item as unknown as Record<string, unknown>)
+    );
+    onUpdate(localItems);
+    return () => {};
+  }
+
+  let active = true;
+  let unsub: Unsubscribe | null = null;
+
+  (async () => {
+    const ready = await ensureFirestoreReadyForUser(uid);
+    if (!active) return;
+    if (!ready) {
+      onError(getFirestoreAuthFailureReason(uid));
+      return;
+    }
+
+    const q = query(collection(db, 'ideas'), where('submitterId', '==', uid));
+    unsub = onSnapshot(
+      q,
+      (snap) => {
+        if (!active) return;
+        const list: TrackedSubmissionDetail[] = [];
+        snap.forEach((docSnap) => {
+          list.push(
+            mapIdeaDocToTrackedDetail(docSnap.id, docSnap.data() as Record<string, unknown>)
+          );
+        });
+        onUpdate(list);
+      },
+      (err) => {
+        if (!active) return;
+        onError(formatFirestoreErrorFriendly(err, OperationType.LIST, 'ideas'));
+      }
+    );
+  })();
+
+  return () => {
+    active = false;
+    if (unsub) {
+      unsub();
+    }
+  };
+}
+
+export function subscribeToIdeaEvents(
+  ideaId: string,
+  onUpdate: (events: IdeaEventRecord[]) => void,
+  onError: (message: string) => void
+): Unsubscribe {
+  if (!ideaId || !db || firebaseConfig.apiKey.includes('MockKey')) {
+    onUpdate([]);
+    return () => {};
+  }
+
+  const q = query(
+    collection(db, 'ideas', ideaId, 'events'),
+    where('applicantVisible', '==', true)
+  );
+
+  return onSnapshot(
+    q,
+    (snap) => {
+      const events: IdeaEventRecord[] = [];
+      snap.forEach((docSnap) => {
+        const raw = docSnap.data() as Record<string, unknown>;
+        events.push({
+          id: docSnap.id,
+          title:
+            (typeof raw.title === 'string' && raw.title.trim()) ||
+            (typeof raw.label === 'string' && raw.label.trim()) ||
+            (typeof raw.event === 'string' && raw.event.trim()) ||
+            'Application update',
+          detail:
+            (typeof raw.detail === 'string' && raw.detail.trim()) ||
+            (typeof raw.summary === 'string' && raw.summary.trim()) ||
+            (typeof raw.description === 'string' && raw.description.trim()) ||
+            (typeof raw.message === 'string' && raw.message.trim()) ||
+            '',
+          actorLabel:
+            (typeof raw.actorLabel === 'string' && raw.actorLabel.trim()) ||
+            (typeof raw.committeeName === 'string' && raw.committeeName.trim()) ||
+            '',
+          eventType:
+            (typeof raw.eventType === 'string' && raw.eventType.trim()) ||
+            (typeof raw.type === 'string' && raw.type.trim()) ||
+            '',
+          applicantVisible: Boolean(raw.applicantVisible),
+          createdAt: toDate(raw.createdAt || raw.timestamp),
+        });
+      });
+      events.sort(
+        (a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0)
+      );
+      onUpdate(events);
+    },
+    (err) => {
+      onError(formatFirestoreErrorFriendly(err, OperationType.LIST, `ideas/${ideaId}/events`));
+    }
+  );
+}
+
+function mapQueryAttachments(rawList: unknown): IdeaQueryAttachment[] {
+  if (!Array.isArray(rawList)) return [];
+  return rawList
+    .map((item): IdeaQueryAttachment | null => {
+      if (!item || typeof item !== 'object') return null;
+      const obj = item as Record<string, unknown>;
+      const name = typeof obj.name === 'string' ? obj.name.trim() : '';
+      if (!name) return null;
+      const size = Number(obj.size);
+      return {
+        name,
+        size: Number.isFinite(size) && size >= 0 ? Math.round(size) : 0,
+        contentType:
+          typeof obj.contentType === 'string' && obj.contentType.trim()
+            ? obj.contentType.trim()
+            : 'application/pdf',
+        publicUrl: typeof obj.publicUrl === 'string' ? obj.publicUrl.trim() : '',
+        storagePath: typeof obj.storagePath === 'string' ? obj.storagePath.trim() : '',
+        documentId: typeof obj.documentId === 'string' ? obj.documentId.trim() : undefined,
+      };
+    })
+    .filter((entry): entry is IdeaQueryAttachment => Boolean(entry));
+}
+
+export function subscribeToIdeaQueries(
+  ideaId: string,
+  onUpdate: (queries: IdeaQueryRecord[]) => void,
+  onError: (message: string) => void
+): Unsubscribe {
+  if (!ideaId || !db || firebaseConfig.apiKey.includes('MockKey')) {
+    onUpdate([]);
+    return () => {};
+  }
+
+  return onSnapshot(
+    collection(db, 'ideas', ideaId, 'queries'),
+    (snap) => {
+      const queries: IdeaQueryRecord[] = [];
+      snap.forEach((docSnap) => {
+        const raw = docSnap.data() as Record<string, unknown>;
+        const rawResponse =
+          raw.response && typeof raw.response === 'object'
+            ? (raw.response as Record<string, unknown>)
+            : null;
+        const respondedAt = toDate(raw.respondedAt);
+        const status: 'open' | 'responded' =
+          raw.status === 'responded' || respondedAt !== null ? 'responded' : 'open';
+        const reqCount = Number(raw.attachmentsRequested);
+
+        queries.push({
+          id: docSnap.id,
+          queryRef:
+            (typeof raw.queryRef === 'string' && raw.queryRef.trim()) ||
+            (typeof raw.reference === 'string' && raw.reference.trim()) ||
+            docSnap.id.slice(0, 8).toUpperCase(),
+          title:
+            (typeof raw.title === 'string' && raw.title.trim()) || 'Clarification request',
+          message:
+            (typeof raw.message === 'string' && raw.message.trim()) ||
+            (typeof raw.body === 'string' && raw.body.trim()) ||
+            '',
+          fromLabel:
+            (typeof raw.fromLabel === 'string' && raw.fromLabel.trim()) ||
+            (typeof raw.committeeName === 'string' && raw.committeeName.trim()) ||
+            'CEDA Evaluation Committee',
+          status,
+          createdAt: toDate(raw.createdAt || raw.issuedAt),
+          dueAt: toDate(raw.dueAt || raw.dueDate),
+          respondedAt,
+          attachmentsRequested:
+            Number.isFinite(reqCount) && reqCount > 0 ? Math.round(reqCount) : 0,
+          response: rawResponse
+            ? {
+                message:
+                  typeof rawResponse.message === 'string' ? rawResponse.message.trim() : '',
+                attachments: mapQueryAttachments(rawResponse.attachments),
+              }
+            : null,
+        });
+      });
+
+      queries.sort(
+        (a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0)
+      );
+      onUpdate(queries);
+    },
+    (err) => {
+      onError(formatFirestoreErrorFriendly(err, OperationType.LIST, `ideas/${ideaId}/queries`));
+    }
+  );
+}
+
+export interface RespondToIdeaQueryParams {
+  ideaId: string;
+  queryId: string;
+  message: string;
+  attachments: IdeaQueryAttachment[];
+}
+
+export async function respondToIdeaQuery({
+  ideaId,
+  queryId,
+  message,
+  attachments,
+}: RespondToIdeaQueryParams): Promise<void> {
+  const firestoreReady = await ensureFirestoreReadyForUser();
+  if (!firestoreReady) {
+    throw new Error(getFirestoreAuthFailureReason());
+  }
+
+  const queryRefDoc = doc(db, 'ideas', ideaId, 'queries', queryId);
+  const payload = {
+    status: 'responded',
+    respondedAt: serverTimestamp(),
+    response: {
+      message: message.trim(),
+      attachments: attachments.map((att) => ({
+        name: att.name,
+        size: Math.max(0, Math.round(att.size)),
+        contentType: att.contentType,
+        publicUrl: att.publicUrl,
+        storagePath: att.storagePath,
+        ...(att.documentId ? { documentId: att.documentId } : {}),
+      })),
+    },
+  };
+
+  try {
+    await updateDoc(queryRefDoc, payload);
+  } catch (err) {
+    console.error('respondToIdeaQuery failed:', err);
+    handleFirestoreError(err, OperationType.UPDATE, `ideas/${ideaId}/queries/${queryId}`);
+  }
 }
 
 
